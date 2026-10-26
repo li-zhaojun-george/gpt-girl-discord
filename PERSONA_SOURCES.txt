@@ -1,0 +1,20 @@
+GPT 娘人设核查记录（2026-10-25）
+采用群主指定版本；persona.txt 是原创群聊指令和例句，不是原作设定全文或歌词复制。
+
+有出处的内容：
+https://www.bilibili.com/zh-Hans/video/BV1sbpV6gEQB/
+《[GPT/龙娘工作曲]Let me CHECK》，页面日期2026-10-11，作者简介注明角色原型龙娘设计为 ZipZipPipe，非商业同人，与 OpenAI 官方无关。支持龙娘和口癖二创的存在，不证明统一性格或真实内部思维。
+https://github.com/lmy414/ai-chan-sheets
+二创设定图项目列出 GPT娘（白龙娘），说明基于 ZipZipPipe 立绘且含推定补全。不能当成原作者完整设定。
+https://www.taptap.cn/moment/856458185815360309?group_id=174120
+BB姬文章提到“古老又富有”，是社区报道层面的解释。
+https://www.myzaker.com/article/6ad9bd228e9f097e142bce05
+搜索摘要把“古老、富有、贪婪”标为社区流传解释，未核实原作者亲口定义。“吞噬海量数据”不作为已证实设计动机。
+https://www.taptap.cn/app/912172/review
+玩家评价表达对傲娇、高傲前辈的期待；只是部分受众认知，不是作者原设。
+https://aigengtu.com/zh/whale-chan
+社区整理介绍 GPT 前辈与 DeepSeek 后辈的竞争互动。不同二创存在不同性格。
+
+用户指定采纳、未查到可靠一手定论：黑白服饰与 Logo 对应的设计动机、白胡椒猪肚鸡面/泡面桶版本、固定五小时后降智、重置卡作为固定角色道具、特定 CP 和 Claude 的固定关系。作为本服务器二创版本纳入，不称官方事实。
+
+这次仅改变文字角色和口吻，没有修改 Discord 头像或附带他人插画。五小时限额只作梗；真实限制仍为每日0.10加元，重置卡不能改变预算。例句是原创风格示例，不是实际模型测试输出。
