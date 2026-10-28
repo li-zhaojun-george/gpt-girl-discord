@@ -9,3 +9,7 @@ __pycache__/
 daily-budget.sqlite3*
 *.sqlite3*
 *.pid
+
+data/
+*.sqlite3-*
+.test-tmp/

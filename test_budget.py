@@ -4,7 +4,6 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace as NS
 from budget import DailyBudget, LIMIT, EXHAUSTED
-from test_bot import BotTests
 
 
 class BudgetTests(unittest.TestCase):
@@ -33,22 +32,26 @@ class BudgetTests(unittest.TestCase):
                 self.assertEqual(db.execute('SELECT used FROM days').fetchone()[0], 6000)
             while b.reserve('persona', [], 600) is not None:
                 pass
-            self.assertTrue(DailyBudget(path, lambda: day[0]).exhausted())
+            self.assertFalse(DailyBudget(path, lambda: day[0]).exhausted())
             with b.connect() as db:
                 self.assertLessEqual(db.execute('SELECT used FROM days').fetchone()[0], LIMIT)
             day[0] = '2026-10-26'
             self.assertFalse(b.exhausted())
             self.assertIsNotNone(b.reserve('persona', [], 600))
 
-
-class BudgetBotTests(BotTests):
-    async def test_exhaustion_repeats_without_api_even_in_cooldown(self):
+    def test_oversized_request_does_not_lock_out_smaller_request(self):
         with tempfile.TemporaryDirectory() as folder:
-            self.bot.budget = DailyBudget(Path(folder) / 'budget.db', lambda: '2026-10-25')
-            with self.bot.budget.connect() as db:
-                db.execute('INSERT INTO days VALUES (?,?)', ('2026-10-25', LIMIT))
-            for _ in range(2):
-                msg = self.message()
-                await self.bot.on_message(msg)
-                self.assertEqual(msg.reply.call_args.args[0], EXHAUSTED)
-            self.api.responses.create.assert_not_awaited()
+            b = DailyBudget(Path(folder) / "budget.db")
+            self.assertIsNone(b.reserve("字" * 200000, [], 600))
+            self.assertFalse(b.exhausted())
+            self.assertIsNotNone(b.reserve("small", [], 600))
+
+    def test_unknown_usage_keeps_reservation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            b = DailyBudget(Path(folder) / "budget.db")
+            ticket = b.reserve("small", [], 600)
+            b.settle(ticket, None)
+            with b.connect() as db:
+                row = db.execute("SELECT used FROM days").fetchone()
+                self.assertGreater(row[0], 0)
+

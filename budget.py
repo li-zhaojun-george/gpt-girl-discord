@@ -33,6 +33,8 @@ class DailyBudget:
                 db.execute("INSERT INTO metadata VALUES ('currency','CAD')")
             elif currency[0] != 'CAD':
                 raise ValueError('Unsupported budget currency')
+            # An oversized request must not block smaller requests for a whole day.
+            db.execute('DELETE FROM blocked')
 
     @contextmanager
     def connect(self):
@@ -45,8 +47,6 @@ class DailyBudget:
 
     def exhausted(self):
         with self.connect() as db:
-            if db.execute('SELECT 1 FROM blocked WHERE day=?', (self.clock(),)).fetchone():
-                return True
             row = db.execute('SELECT used FROM days WHERE day=?', (self.clock(),)).fetchone()
             return bool(row and row[0] >= LIMIT)
 
@@ -57,12 +57,9 @@ class DailyBudget:
         day = self.clock()
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            if db.execute('SELECT 1 FROM blocked WHERE day=?', (day,)).fetchone():
-                return None
             db.execute('INSERT OR IGNORE INTO days VALUES (?,0)', (day,))
             used = db.execute('SELECT used FROM days WHERE day=?', (day,)).fetchone()[0]
             if used + amount > LIMIT:
-                db.execute('INSERT OR IGNORE INTO blocked VALUES (?)', (day,))
                 return None
             db.execute('UPDATE days SET used=used+? WHERE day=?', (amount, day))
             return db.execute('INSERT INTO calls(day,reserved) VALUES (?,?)', (day, amount)).lastrowid
@@ -79,3 +76,4 @@ class DailyBudget:
             if not settled:
                 db.execute('UPDATE days SET used=used+? WHERE day=?', (cost-reserved, day))
                 db.execute('UPDATE calls SET settled=1 WHERE id=?', (call_id,))
+
