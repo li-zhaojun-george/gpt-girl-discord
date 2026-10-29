@@ -266,7 +266,9 @@ class MemoryEngine:
             self.next_prune = time.monotonic()+60
         if self.closing or bot.model_lock.locked() or bot.waiters or bot.pending or time.monotonic()<bot.backoff_until:
             return
-        for scope,queue in list(self.inbox.items()):
+        # Service the oldest pending batch, so a busy early channel cannot starve others.
+        pending = sorted(self.inbox.items(),key=lambda item:item[1][0]['time'] if item[1] else float('inf'))
+        for scope,queue in pending:
             queue = deque((e for e in queue if time.time()-e['time']<1800),maxlen=30)
             self.inbox[scope] = queue
             if not queue or time.monotonic()-self.last_added.get(scope,0)<bot.settings.memory_delay or time.monotonic()<self.retry_after.get(scope,0):

@@ -210,6 +210,77 @@ class MemoryEngineTests(unittest.IsolatedAsyncioTestCase):
         channel.send.assert_awaited_once()
         self.assertTrue(channel.send.call_args.kwargs['silent'])
 
+    def enable_second_channel(self):
+        self.bot.settings.allowed.add(21)
+        self.bot.settings.observed.add(21)
+        self.bot.settings.memory_channels.add(21)
+
+    async def test_multi_channel_batches_persist_without_mixing_sources(self):
+        self.enable_second_channel()
+        one=self.message()
+        two=self.message('我一直喜欢黑咖啡，不喜欢茶。',mid=2)
+        two.channel=NS(id=21)
+        await self.bot.on_message(one)
+        await self.bot.on_message(two)
+        seen=[]
+        async def extract(rules,payload,schema):
+            self.assertEqual(len(payload['messages']),1)
+            s=payload['messages'][0]
+            seen.append(s['message_id'])
+            return {'memories':[entry(s,summary=s['text'])]}
+        self.provider.structured.side_effect=extract
+        await self.engine.tick()
+        await self.engine.tick()
+        store=MemoryStore(State(Path(self.folder.name)/'state.sqlite3'))
+        self.assertIn('乌龙茶',store.rows('10:20',time.time())[0]['summary'])
+        self.assertIn('黑咖啡',store.rows('10:21',time.time())[0]['summary'])
+        self.assertCountEqual(seen,['1','2'])
+        self.assertEqual(store.rows('10:22',time.time()),[])
+
+    async def test_other_channel_evidence_cannot_be_used(self):
+        self.enable_second_channel()
+        await self.bot.on_message(self.message())
+        other=self.message('我喜欢黑咖啡。',mid=2)
+        other.channel=NS(id=21)
+        await self.bot.on_message(other)
+        wrong=self.engine.context['10:21'][0]
+        self.provider.structured.return_value={'memories':[entry(wrong)]}
+        await self.engine.tick()
+        self.assertEqual(self.engine.store.rows('10:20',time.time()),[])
+
+    async def test_oldest_pending_channel_wins_after_busy_channel_refills(self):
+        self.enable_second_channel()
+        await self.bot.on_message(self.message())
+        other=self.message(mid=2)
+        other.channel=NS(id=21)
+        await self.bot.on_message(other)
+        self.provider.structured.return_value={'memories':[]}
+        await self.engine.tick()
+        await self.bot.on_message(self.message(mid=3))
+        await self.engine.tick()
+        self.assertEqual(self.provider.structured.call_args.args[1]['new_message_ids'],['2'])
+
+    async def test_optout_is_enforced_in_its_channel(self):
+        self.enable_second_channel()
+        self.bot.state.set_muted('10:21',11,True)
+        await self.bot.on_message(self.message())
+        other=self.message(mid=2)
+        other.channel=NS(id=21)
+        await self.bot.on_message(other)
+        self.assertTrue(self.engine.inbox.get('10:20'))
+        self.assertFalse(self.engine.inbox.get('10:21'))
+
+    async def test_new_channel_gets_notice_without_repeating_existing_notice(self):
+        self.enable_second_channel()
+        channels={cid:NS(id=cid,guild=NS(id=10),send=AsyncMock()) for cid in (20,21)}
+        self.bot.get_channel=channels.get
+        with self.bot.state.db() as db:
+            db.execute("INSERT INTO memory_notices VALUES ('10:20','sent')")
+        await self.bot.memory_notice()
+        await self.bot.memory_notice()
+        channels[20].send.assert_not_awaited()
+        channels[21].send.assert_awaited_once()
+
     async def test_idle_source_buffers_expire_without_new_messages(self):
         await self.bot.on_message(self.message())
         self.engine.context['10:20'][0]['time'] = time.time()-1801
