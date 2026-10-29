@@ -41,6 +41,7 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
             msg.reply.assert_not_awaited()
         self.provider.complete.assert_not_awaited()
 
+    @patch('bot.resolve_reference',AsyncMock(return_value=None))
     async def test_fat_dragon_nickname_replies_at_night_without_allowing_ambient(self):
         self.bot.settings.mode='social'
         self.bot.settings.observed={20}
@@ -59,6 +60,7 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         named.reply.assert_awaited_once()
         ambient.reply.assert_not_awaited()
 
+    @patch('bot.resolve_reference',AsyncMock(return_value=None))
     async def test_direct_reply_and_mentions_disable_pings(self):
         msg = self.message("接着说", reference=NS(resolved=NS(author=NS(id=99), channel=NS(id=20))))
         await self.bot.on_message(msg)
