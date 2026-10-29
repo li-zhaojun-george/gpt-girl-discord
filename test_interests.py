@@ -13,6 +13,7 @@ from interests import InterestEngine, InterestStore, candidate, load_profile
 from media import Media, MediaFetcher, PublicResolver, canonical_url, image_extension, public_url
 from settings import Settings
 from state import State
+from channel_context import channel_context, channel_interests
 
 PROFILE = Path(__file__).with_name('interests.json')
 
@@ -203,6 +204,74 @@ class InterestTests(unittest.IsolatedAsyncioTestCase):
         await self.engine.tick()
         self.channel.send.assert_not_awaited()
         self.assertEqual(self.engine.store.recent('10:20'),[])
+
+    async def test_named_channel_drives_search_and_caption(self):
+        self.channel.name='游戏视频'
+        await self.engine.tick()
+        search=self.provider.structured.call_args.args[1]
+        caption=self.provider.complete.call_args.args[1]
+        self.assertEqual(search['interest']['formats'],['video'])
+        self.assertEqual(search['channel_context']['theme'],'games')
+        self.assertEqual(caption['channel_context']['name'],'游戏视频')
+        self.channel.send.assert_awaited_once()
+
+    async def test_picture_channel_rejects_video_candidate(self):
+        self.channel.name='游戏图片'
+        await self.engine.tick()
+        self.channel.send.assert_not_awaited()
+        self.fetcher.fetch.assert_not_awaited()
+
+    async def test_guild_pacing_persists_across_restart(self):
+        await self.engine.tick()
+        self.channel.id=21
+        self.bot.settings.allowed.add(21)
+        self.bot.settings.interest_channels={21}
+        self.engine=InterestEngine(self.bot,self.profile,self.fetcher)
+        self.engine.store.ensure('10:21',self.bot.now().timestamp())
+        self.engine.store.defer('10:21',0)
+        self.provider.structured.reset_mock()
+        await self.engine.tick()
+        self.provider.structured.assert_not_awaited()
+        self.assertTrue(self.engine.store.seen('10:21',self.fetcher.fetch.return_value.url))
+        self.assertFalse(self.engine.store.seen('11:21',self.fetcher.fetch.return_value.url))
+
+    async def test_renaming_during_search_prevents_stale_share(self):
+        async def renamed(*args,**kwargs):
+            self.channel.name='学习聊天'
+            return decision()
+        self.channel.name='游戏聊天'
+        self.provider.structured.side_effect=renamed
+        await self.engine.tick()
+        self.channel.send.assert_not_awaited()
+
+    async def test_oldest_due_channel_wins_instead_of_lowest_id(self):
+        self.bot.settings.allowed.add(21)
+        self.bot.settings.interest_channels.add(21)
+        other=NS(**vars(self.channel))
+        other.id=21
+        self.bot.get_channel=lambda cid:self.channel if cid==20 else other
+        self.engine.store.ensure('10:21',self.bot.now().timestamp())
+        self.engine.store.defer('10:21',-10)
+        self.engine.explore=AsyncMock()
+        await self.engine.tick()
+        self.assertEqual(self.engine.explore.call_args.args[0].id,21)
+
+    async def test_channel_context_enters_normal_conversation(self):
+        self.channel.name='桌游杂谈'
+        await self.bot.on_message(self.message('<@99> 推荐一个合作玩法'))
+        await asyncio.gather(*list(self.bot.pending.values()))
+        self.assertEqual(self.provider.complete.call_args.args[1]['channel_context']['theme'],'tabletop')
+
+    def test_channel_theme_and_format_matrix(self):
+        for name,theme,formats in [('学习聊天','learning',['meme','video','article']),
+                                   ('游戏图片','games',['meme']),('欣赏视频','art',['video']),
+                                   ('吃瓜视频','discussion',['video']),('拾表情包','humor',['meme'])]:
+            c=NS(name=name)
+            self.assertEqual(channel_context(c)['theme'],theme)
+            for choice in channel_interests(self.profile,c):
+                self.assertEqual(choice['formats'],formats)
+        for name in ('黄色图片','人员变动','待机频道'):
+            self.assertFalse(channel_interests(self.profile,NS(name=name)))
 
     async def test_caption_cannot_add_unverified_links_or_mentions(self):
         self.provider.complete.return_value = ('reply','@everyone https://example.invalid')
