@@ -49,6 +49,24 @@ class ReferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(self.history_args['before'],self.message)
         self.assertFalse(self.bot.state.facts('10:20',2))
 
+    async def test_consecutive_short_messages_keep_keyboard_context(self):
+        first=self.make(1,2,'纠结就买80he')
+        middle=self.make(2,2,'建议你看测评')
+        last=self.make(3,2,'闹麻了')
+        self.rows=[last,middle,first,self.make(0,3,'别人的旧话题')]
+        result=await resolve_reference(self.bot,self.message,self.message.content)
+        self.assertEqual(result['message_ids'],['1','2','3'])
+        self.assertEqual(result['text'],'纠结就买80he\n建议你看测评\n闹麻了')
+
+    async def test_group_does_not_merge_distant_or_other_author_messages(self):
+        last=self.make(3,2,'最近这句')
+        distant=self.make(2,2,'很久以前')
+        distant.created_at-=timedelta(minutes=6)
+        for other in (distant,self.make(2,3,'其他人的话')):
+            self.rows=[last,other]
+            result=await resolve_reference(self.bot,self.message,self.message.content)
+            self.assertEqual(result['message_ids'],['3'])
+
     async def test_explicit_reply_wins_and_fetches_current_text(self):
         self.message.reference=NS(channel_id=20,message_id=7)
         self.channel.fetch_message.return_value=self.make(7,99,'被明确回复的视频',True)
