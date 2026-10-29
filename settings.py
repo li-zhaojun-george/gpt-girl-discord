@@ -21,6 +21,8 @@ class Settings:
     interest_channels: set[int] = field(default_factory=set)
     interest_interval: int = 90
     interest_idle: int = 120
+    memory_channels: set[int] = field(default_factory=set)
+    memory_delay: int = 12
 
     def __post_init__(self):
         if not self.allowed or not self.observed <= self.allowed:
@@ -44,6 +46,10 @@ class Settings:
             raise ValueError("兴趣分享需要Codex/social，且仅限观察频道")
         if not 15 <= self.interest_interval <= 1440 or not 30 <= self.interest_idle <= 3600:
             raise ValueError("兴趣巡游间隔15–1440分钟，聊天让路30–3600秒")
+        if self.memory_channels and (self.backend!='codex' or self.mode=='mention' or not self.memory_channels<=self.observed):
+            raise ValueError("自动记忆需要Codex且仅限观察频道")
+        if not 5<=self.memory_delay<=300:
+            raise ValueError("记忆整理等待5–300秒")
 
     def quiet(self, hour):
         start, end = self.quiet_start, self.quiet_end
@@ -66,5 +72,7 @@ class Settings:
                    quiet_end=int(os.getenv("QUIET_END_HOUR", "8")),
                    interest_channels=ids("INTEREST_CHANNEL_IDS"),
                    interest_interval=int(os.getenv("INTEREST_INTERVAL_MINUTES", "90")),
-                   interest_idle=int(os.getenv("INTEREST_IDLE_SECONDS", "120")))
+                   interest_idle=int(os.getenv("INTEREST_IDLE_SECONDS", "120")),
+                   memory_channels=ids("AUTO_MEMORY_CHANNEL_IDS"),
+                   memory_delay=int(os.getenv("MEMORY_BATCH_DELAY_SECONDS", "12")))
 

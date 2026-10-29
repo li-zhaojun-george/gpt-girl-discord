@@ -76,6 +76,13 @@ class State:
             # Other replies may have paraphrased this user's observed messages.
             # Discard the channel's derived short-term exchanges as well.
             db.execute("DELETE FROM exchanges WHERE scope=?", (scope,))
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='social_memories'").fetchone():
+                ids = [r[0] for r in db.execute('''SELECT id FROM social_memories WHERE scope=? AND
+                    (owner=? OR id IN (SELECT memory_id FROM memory_evidence WHERE user_id=?))''',
+                    (scope,str(user),str(user)))]
+                for memory_id in ids:
+                    db.execute('DELETE FROM memory_evidence WHERE memory_id=?',(memory_id,))
+                    db.execute('DELETE FROM social_memories WHERE id=?',(memory_id,))
 
     def prune(self):
         with self.db() as db:
