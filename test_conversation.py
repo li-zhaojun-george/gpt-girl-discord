@@ -1,4 +1,7 @@
 import unittest
+import os
+from unittest.mock import patch
+from settings import Settings
 from types import SimpleNamespace as NS
 from conversation import ConversationRouter
 
@@ -11,6 +14,13 @@ class ConversationTests(unittest.TestCase):
     def route(self, text, user=1, reference=None, observed=True, known=False):
         message = NS(content=text, author=NS(id=user), channel=NS(id=20), reference=reference)
         return self.router.classify(message, 99, "10:20", observed, known).kind
+
+    def test_default_environment_recognizes_fat_dragon_alias(self):
+        with patch.dict(os.environ,{'ALLOWED_CHANNEL_IDS':'20'},clear=True):
+            settings=Settings.from_env()
+        self.router=ConversationRouter(settings.aliases)
+        self.assertEqual(self.route('大肥龙，如何评价⬆️'),'named')
+        self.assertEqual(self.route('<@123> 大肥龙，如何评价'),'other')
 
     def test_focus_expiry_and_scope(self):
         self.router.touch("10:20", 1)

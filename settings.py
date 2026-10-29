@@ -15,7 +15,7 @@ class Settings:
     social_gap: int = 30
     conversation_window: int = 180
     debounce_seconds: float = 1.5
-    aliases: tuple[str, ...] = ("GPT娘", "大白龙", "龙娘", "小龙")
+    aliases: tuple[str, ...] = ("GPT娘", "大白龙", "大肥龙", "龙娘", "小龙")
     quiet_start: int = 23
     quiet_end: int = 8
     interest_channels: set[int] = field(default_factory=set)
@@ -67,7 +67,7 @@ class Settings:
                    social_gap=int(os.getenv("SOCIAL_COOLDOWN_SECONDS", "30")),
                    conversation_window=int(os.getenv("CONVERSATION_WINDOW_SECONDS", "180")),
                    debounce_seconds=float(os.getenv("MESSAGE_DEBOUNCE_SECONDS", "1.5")),
-                   aliases=tuple(a.strip() for a in os.getenv("BOT_ALIASES", "GPT娘,大白龙,龙娘,小龙").split(",") if a.strip()),
+                   aliases=tuple(a.strip() for a in os.getenv("BOT_ALIASES", "GPT娘,大白龙,大肥龙,龙娘,小龙").split(",") if a.strip()),
                    quiet_start=int(os.getenv("QUIET_START_HOUR", "23")),
                    quiet_end=int(os.getenv("QUIET_END_HOUR", "8")),
                    interest_channels=ids("INTEREST_CHANNEL_IDS"),
