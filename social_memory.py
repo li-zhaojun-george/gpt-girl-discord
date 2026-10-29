@@ -338,7 +338,8 @@ class MemoryEngine:
         row = next((r for r in rows if r['id']==memory_id),None)
         if action=='记忆来源' and row and (self.store.owned(row,user) or row['kind']=='episode'):
             guild,channel = scope.split(':')
-            reply = '\n'.join(f"“{e['quote']}” https://discord.com/channels/{guild}/{channel}/{e['message_id']}" for e in row['evidence'])
+            reply = '\n'.join(f"“{e['quote']}” "+('（通过私密 / 指令确认或更正，无公开消息链接）' if e['message_id'].startswith('slash:') else
+                f"https://discord.com/channels/{guild}/{channel}/{e['message_id']}") for e in row['evidence'])
         elif action=='更正记忆' and (not correction or not safe_text(correction)):
             reply = '请写1–120字的普通兴趣或共同交流内容；敏感私事不放进自动记忆。'
         elif action=='记忆来源':

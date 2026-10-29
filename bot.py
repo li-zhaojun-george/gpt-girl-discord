@@ -21,6 +21,7 @@ from state import State
 from conversation import ConversationRouter
 from interests import InterestEngine, load_profile
 from social_memory import MemoryEngine
+from slash_commands import SlashControls
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("gpt-girl")
@@ -82,6 +83,7 @@ class GirlBot(discord.Client):
         self.interests = None
         self.memory_task = None
         self.memory = MemoryEngine(self) if settings.memory_channels else None
+        self.controls = SlashControls(self)
         if settings.interest_channels:
             if getattr(provider, "web_search", "disabled") != "live":
                 raise ValueError("兴趣探索需要 CODEX_WEB_SEARCH=live")
@@ -109,6 +111,10 @@ class GirlBot(discord.Client):
     async def on_ready(self):
         LOG.info("GPT娘已上线；backend=%s mode=%s guilds=%s", self.settings.backend,
                  self.settings.mode, len(self.guilds))
+        try:
+            await self.controls.sync_enabled_guilds()
+        except Exception as exc:
+            LOG.warning('Slash command sync failed (%s)',type(exc).__name__)
 
     def now(self):
         return datetime.now(ZoneInfo(self.settings.timezone))
