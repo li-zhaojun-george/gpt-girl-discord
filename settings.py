@@ -18,6 +18,9 @@ class Settings:
     aliases: tuple[str, ...] = ("GPT娘", "大白龙", "龙娘", "小龙")
     quiet_start: int = 23
     quiet_end: int = 8
+    interest_channels: set[int] = field(default_factory=set)
+    interest_interval: int = 90
+    interest_idle: int = 120
 
     def __post_init__(self):
         if not self.allowed or not self.observed <= self.allowed:
@@ -36,6 +39,11 @@ class Settings:
         if not self.aliases or any(not a.strip() or len(a) > 32 for a in self.aliases):
             raise ValueError("昵称不能为空且长度不得超过32字符")
         ZoneInfo(self.timezone)
+        if self.interest_channels and (self.mode != "social" or self.backend != "codex" or
+                                       not self.interest_channels <= self.observed):
+            raise ValueError("兴趣分享需要Codex/social，且仅限观察频道")
+        if not 15 <= self.interest_interval <= 1440 or not 30 <= self.interest_idle <= 3600:
+            raise ValueError("兴趣巡游间隔15–1440分钟，聊天让路30–3600秒")
 
     def quiet(self, hour):
         start, end = self.quiet_start, self.quiet_end
@@ -55,5 +63,8 @@ class Settings:
                    debounce_seconds=float(os.getenv("MESSAGE_DEBOUNCE_SECONDS", "1.5")),
                    aliases=tuple(a.strip() for a in os.getenv("BOT_ALIASES", "GPT娘,大白龙,龙娘,小龙").split(",") if a.strip()),
                    quiet_start=int(os.getenv("QUIET_START_HOUR", "23")),
-                   quiet_end=int(os.getenv("QUIET_END_HOUR", "8")))
+                   quiet_end=int(os.getenv("QUIET_END_HOUR", "8")),
+                   interest_channels=ids("INTEREST_CHANNEL_IDS"),
+                   interest_interval=int(os.getenv("INTEREST_INTERVAL_MINUTES", "90")),
+                   interest_idle=int(os.getenv("INTEREST_IDLE_SECONDS", "120")))
 

@@ -2,3 +2,5 @@ discord.py>=2.6,<3
 openai>=2,<3
 python-dotenv>=1,<2
 tzdata>=2025.2
+aiohttp>=3.9,<4
+

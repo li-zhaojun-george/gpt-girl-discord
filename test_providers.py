@@ -8,6 +8,28 @@ from unittest.mock import AsyncMock, patch
 from providers import CodexProvider, OpenAIProvider, QuotaError, parse_decision
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_discovery_requires_actual_search_event_and_cleans_trace(self):
+        for searched in (False, True):
+            with tempfile.TemporaryDirectory() as folder:
+                with patch("providers.shutil.which", return_value="C:/codex.exe"):
+                    provider = CodexProvider(folder, web_search="live")
+                async def spawn(*args, **kwargs):
+                    self.assertIn("--json", args)
+                    output = Path(args[args.index("--output-last-message")+1])
+                    async def communicate(data):
+                        output.write_text('{"action":"silence"}', encoding="utf-8")
+                        if searched:
+                            kwargs["stdout"].write(b'{"type":"item.completed","item":{"type":"web_search"}}\n')
+                    return NS(communicate=communicate, returncode=0)
+                with patch("providers.asyncio.create_subprocess_exec", side_effect=spawn):
+                    if searched:
+                        result = await provider.structured("discover", {}, {"type":"object"}, require_search=True)
+                        self.assertEqual(result["action"], "silence")
+                    else:
+                        with self.assertRaisesRegex(ValueError, "No completed web search"):
+                            await provider.structured("discover", {}, {"type":"object"}, require_search=True)
+                self.assertEqual(list(Path(folder).iterdir()), [])
+
     def test_web_search_is_explicit_and_does_not_enable_shell_or_plugins(self):
         with tempfile.TemporaryDirectory() as folder:
             with patch("providers.shutil.which", return_value="C:/codex.exe"):
