@@ -88,7 +88,8 @@ class State:
             db.execute("BEGIN IMMEDIATE")
             db.execute("INSERT OR IGNORE INTO quota(day) VALUES (?)", (day,))
             row = db.execute("SELECT total,social FROM quota WHERE day=?", (day,)).fetchone()
-            if row["total"] >= total_limit or (social and row["social"] >= social_limit):
+            if ((total_limit >= 0 and row["total"] >= total_limit) or
+                    (social and social_limit >= 0 and row["social"] >= social_limit)):
                 return False
             db.execute("UPDATE quota SET total=total+1,social=social+? WHERE day=?", (int(social), day))
             return True

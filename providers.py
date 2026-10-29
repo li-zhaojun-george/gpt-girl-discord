@@ -27,7 +27,7 @@ def parse_decision(raw):
     return data["action"], text[:1900]
 
 class CodexProvider:
-    def __init__(self, runtime, executable="codex", model="", timeout=90):
+    def __init__(self, runtime, executable="codex", model="", timeout=90, web_search="disabled"):
         self.runtime = Path(runtime).resolve()
         self.runtime.mkdir(parents=True, exist_ok=True)
         self.executable = shutil.which(executable)
@@ -36,6 +36,9 @@ class CodexProvider:
         # Avoid Windows shell wrappers. Install/use the native codex.exe.
         if os.name == "nt" and Path(self.executable).suffix.lower() != ".exe":
             raise ValueError("Windows CODEX_EXECUTABLE 必须指向原生 codex.exe")
+        if web_search not in {"disabled", "cached", "live"}:
+            raise ValueError("Invalid Codex web search mode")
+        self.web_search = web_search
         self.model, self.timeout = model, timeout
 
     def command(self, directory):
@@ -44,12 +47,14 @@ class CodexProvider:
                 "--skip-git-repo-check", "--sandbox", "read-only",
                 "--output-schema", str(directory / "schema.json"),
                 "--output-last-message", str(directory / "answer.json"),
-                "-C", str(directory), "-c", 'web_search="disabled"']
+                "-C", str(directory), "-c", f'web_search="{self.web_search}"']
         for feature in ("shell_tool", "unified_exec", "apps", "plugins", "browser_use",
                         "browser_use_external", "computer_use", "image_generation",
-                        "view_image", "multi_agent", "hooks", "memories", "skill_search",
-                        "code_mode_host"):
+                        "view_image", "multi_agent", "hooks", "memories", "skill_search"):
             args += ["--disable", feature]
+        # Current CLI dispatches hosted web search through Code Mode. This enables
+        # its tool dispatcher only; shell, apps, plugins and browser remain disabled.
+        args += ["--enable" if self.web_search != "disabled" else "--disable", "code_mode_host"]
         if self.model:
             args += ["--model", self.model]
         return args + ["-"]

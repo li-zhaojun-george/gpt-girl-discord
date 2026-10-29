@@ -59,6 +59,13 @@ class StateTests(unittest.TestCase):
         self.assertEqual(len(self.state.history("1:9", 4)), 1)
         self.assertEqual(len(self.state.facts("1:2", 4)), 1)
 
+    def test_unlimited_daily_caps_still_count_and_survive_restart(self):
+        for _ in range(130):
+            self.assertTrue(self.state.reserve_call("2026-10-28", -1, -1, True))
+        self.assertTrue(State(self.path).reserve_call("2026-10-28", -1, -1, True))
+        with self.state.db() as db:
+            self.assertEqual(tuple(db.execute("SELECT total,social FROM quota").fetchone()), (131,131))
+
 class SettingsTests(unittest.TestCase):
     def test_invalid_scope_mode_limits_fail_closed(self):
         for kwargs in [dict(allowed=set()), dict(allowed={1}, observed={2}),

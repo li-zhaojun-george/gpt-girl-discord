@@ -8,6 +8,19 @@ from unittest.mock import AsyncMock, patch
 from providers import CodexProvider, OpenAIProvider, QuotaError, parse_decision
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
+    def test_web_search_is_explicit_and_does_not_enable_shell_or_plugins(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with patch("providers.shutil.which", return_value="C:/codex.exe"):
+                provider = CodexProvider(folder, web_search="live")
+                args = provider.command(Path(folder))
+                self.assertIn('web_search="live"', args)
+                self.assertEqual(args[args.index("code_mode_host")-1], "--enable")
+                for feature in ("shell_tool", "apps", "plugins", "computer_use"):
+                    self.assertEqual(args[args.index(feature)-1], "--disable")
+                self.assertIn('web_search="disabled"', CodexProvider(folder).command(Path(folder)))
+                with self.assertRaises(ValueError):
+                    CodexProvider(folder, web_search="invented")
+
     def test_decision_rejects_invalid_or_extra_actions(self):
         for raw in ['null', '{"action":"shell","text":"rm"}', '{"action":"reply","text":""}',
                     '{"action":"reply","text":"ok","command":"bad"}', '{"action":"reply","text":3}']:

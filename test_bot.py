@@ -18,7 +18,7 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         self.folder = tempfile.TemporaryDirectory()
         self.state = State(Path(self.folder.name) / "state.db")
         self.provider = NS(complete=AsyncMock(return_value=("reply", "你好。")))
-        self.bot = GirlBot(self.provider, Settings({20}), "测试人格", self.state)
+        self.bot = GirlBot(self.provider, Settings({20}, debounce_seconds=0), "测试人格", self.state)
         self.bot._connection.user = NS(id=99)
         self.bot.now = lambda: datetime(2026, 10, 28, 12, tzinfo=ZoneInfo("America/Toronto"))
 
@@ -62,12 +62,12 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
             await self.bot.on_message(self.message())
         self.assertEqual(self.state.history("10:20", 1), [])
 
-    async def test_cooldown_length_and_busy_do_not_call_model(self):
-        await self.bot.on_message(self.message())
-        await self.bot.on_message(self.message())
+    async def test_duplicate_event_and_oversized_input_do_not_repeat_model(self):
+        msg = self.message()
+        msg.id = 456
+        await self.bot.on_message(msg)
+        await self.bot.on_message(msg)
         await self.bot.on_message(self.message("<@99> " + "字"*2001, user=2))
-        self.bot.model_busy = True
-        await self.bot.on_message(self.message(user=3))
         self.assertEqual(self.provider.complete.await_count, 1)
 
     async def test_errors_release_capacity_without_leaking_details(self):
@@ -153,11 +153,9 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         self.bot.settings.mode, self.bot.settings.observed = "social", {20}
         await self.bot.on_message(self.message("第一条"))
         await self.bot.on_message(self.message("第二条", user=2))
-        self.assertEqual(len(self.bot.pending), 1)
+        self.assertEqual(len(self.bot.pending), 2)
         await self.bot.on_message(self.message("<@99> 清空记忆"))
-        task = next(iter(self.bot.pending.values()))
-        with patch("bot.asyncio.sleep", AsyncMock()):
-            await task
+        await asyncio.gather(*list(self.bot.pending.values()))
         self.provider.complete.assert_not_awaited()
 
     async def test_explicit_reminder_create_cancel_and_scope(self):
@@ -218,6 +216,160 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
             await self.bot.deliver_reminders()
         channel.send.assert_awaited_once()
         self.assertEqual(self.state.reminders("10:20", 1)[0]["status"], "uncertain")
+
+
+    async def drain(self):
+        if self.bot.pending:
+            await asyncio.gather(*list(self.bot.pending.values()))
+
+    def social(self):
+        self.bot.settings.mode, self.bot.settings.observed = "social", {20}
+
+    async def test_followup_bypasses_ambient_cooldown_quiet_and_zero_social_quota(self):
+        self.social()
+        self.bot.settings.social_calls = 0
+        self.bot.settings.quiet_start, self.bot.settings.quiet_end = 10, 13
+        await self.bot.on_message(self.message("<@99> 喜欢吃什么"))
+        await self.bot.on_message(self.message("为什么喜欢这个"))
+        await self.drain()
+        self.assertEqual(self.provider.complete.await_count, 2)
+        payload = self.provider.complete.call_args.args[1]
+        self.assertEqual(payload["route"], "followup")
+        self.assertEqual(len(payload["history"]), 1)
+        with self.state.db() as db:
+            self.assertEqual(tuple(db.execute("SELECT total,social FROM quota").fetchone()), (2,0))
+
+    async def test_alias_is_addressed_without_spending_social_quota(self):
+        self.social()
+        self.bot.settings.social_calls = 0
+        await self.bot.on_message(self.message("大白龙你喜欢吃什么"))
+        await self.drain()
+        self.assertEqual(self.provider.complete.call_args.args[1]["route"], "named")
+
+    async def test_messages_to_others_do_not_call_model_or_keep_focus(self):
+        self.social()
+        await self.bot.on_message(self.message())
+        await self.bot.on_message(self.message("<@123> 你可以不用@试试看"))
+        await self.drain()
+        self.assertEqual(self.provider.complete.await_count, 1)
+        self.assertNotIn(("10:20", 1), self.bot.router.active)
+        await self.bot.on_message(self.message("你确定吗", reference=NS(
+            resolved=NS(author=NS(id=123), channel=NS(id=20)))))
+        await self.drain()
+        self.assertEqual(self.provider.complete.await_count, 1)
+
+    async def test_implicit_burst_merges_per_person_and_keeps_latest_anchor(self):
+        self.social()
+        self.bot.router.touch("10:20", 1)
+        first = self.message("那为什么")
+        second = self.message("我是说PC这个版本")
+        await self.bot.on_message(first)
+        await self.bot.on_message(second)
+        await self.drain()
+        self.provider.complete.assert_awaited_once()
+        self.assertIn("那为什么\n我是说PC这个版本", self.provider.complete.call_args.args[1]["text"])
+        first.reply.assert_not_awaited()
+        second.reply.assert_awaited_once()
+
+    async def test_distinct_explicit_messages_not_silently_dropped_by_old_eight_second_rule(self):
+        await self.bot.on_message(self.message("<@99> 第一问"))
+        await self.bot.on_message(self.message("<@99> 第二问"))
+        self.assertEqual(self.provider.complete.await_count, 2)
+
+    async def test_conversation_waits_for_model_slot(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def complete(*args):
+            if self.provider.complete.await_count == 1:
+                entered.set()
+                await release.wait()
+            return "reply", "已回答"
+        self.provider.complete.side_effect = complete
+        one, two = self.message(user=1), self.message(user=2)
+        first = asyncio.create_task(self.bot.on_message(one))
+        await entered.wait()
+        second = asyncio.create_task(self.bot.on_message(two))
+        await asyncio.sleep(0)
+        self.assertEqual(self.provider.complete.await_count, 1)
+        release.set()
+        await asyncio.gather(first, second)
+        self.assertEqual(self.provider.complete.await_count, 2)
+        one.reply.assert_awaited_once()
+        two.reply.assert_awaited_once()
+
+    async def test_newer_same_user_correction_discards_stale_model_answer(self):
+        self.social()
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def complete(*args):
+            if self.provider.complete.await_count == 1:
+                entered.set()
+                await release.wait()
+                return "reply", "旧答案"
+            return "reply", "最新答案"
+        self.provider.complete.side_effect = complete
+        old = self.message("<@99> 主机数值是多少")
+        task = asyncio.create_task(self.bot.on_message(old))
+        await entered.wait()
+        new = self.message("不对，我要问PC")
+        await self.bot.on_message(new)
+        release.set()
+        await task
+        await self.drain()
+        old.reply.assert_not_awaited()
+        self.assertEqual(new.reply.call_args.args[0], "最新答案")
+        self.assertEqual(len(self.state.history("10:20", 1)), 1)
+
+    async def test_other_addressee_invalidates_inflight_answer(self):
+        self.social()
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def complete(*args):
+            entered.set()
+            await release.wait()
+            return "reply", "不应发送"
+        self.provider.complete.side_effect = complete
+        old = self.message()
+        task = asyncio.create_task(self.bot.on_message(old))
+        await entered.wait()
+        await self.bot.on_message(self.message("<@123> 我改问你了"))
+        release.set()
+        await task
+        old.reply.assert_not_awaited()
+
+    async def test_explicit_end_stops_implicit_followup(self):
+        self.social()
+        await self.bot.on_message(self.message())
+        await self.bot.on_message(self.message("不用回复了"))
+        await self.drain()
+        self.assertNotIn(("10:20", 1), self.bot.router.active)
+        self.assertEqual(self.provider.complete.await_count, 1)
+
+    async def test_error_backoff_prevents_request_storm(self):
+        self.provider.complete.side_effect = RuntimeError("upstream")
+        await self.bot.on_message(self.message())
+        await self.bot.on_message(self.message(user=2))
+        self.provider.complete.assert_awaited_once()
+        self.assertFalse(self.bot.model_lock.locked())
+
+    async def test_followup_focus_isolated_by_channel_and_user(self):
+        self.social()
+        await self.bot.on_message(self.message())
+        self.bot.settings.allowed.add(21)
+        self.bot.settings.observed.add(21)
+        await self.bot.on_message(self.message("为什么", user=2))
+        await self.bot.on_message(self.message("为什么", channel=21))
+        await self.drain()
+        # user2 in the same channel is suppressed by ambient cooldown;
+        # another channel is ambient rather than a continuation of user1's chat.
+        self.assertEqual(self.provider.complete.call_args.args[1]["route"], "ambient")
+        self.assertEqual(self.provider.complete.call_args.args[1]["history"], [])
+
+    async def test_forget_drops_pending_implicit_fragments(self):
+        self.social()
+        self.bot.router.touch("10:20", 1)
+        await self.bot.on_message(self.message("旧的私密内容"))
+        await self.bot.on_message(self.message("<@99> 清空记忆"))
+        await self.drain()
+        self.provider.complete.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,9 +10,12 @@ class Settings:
     mode: str = "mention"
     backend: str = "codex"
     timezone: str = "America/Toronto"
-    daily_calls: int = 100
-    social_calls: int = 12
-    social_gap: int = 600
+    daily_calls: int = -1
+    social_calls: int = -1
+    social_gap: int = 30
+    conversation_window: int = 180
+    debounce_seconds: float = 1.5
+    aliases: tuple[str, ...] = ("GPT娘", "大白龙", "龙娘", "小龙")
     quiet_start: int = 23
     quiet_end: int = 8
 
@@ -23,10 +26,15 @@ class Settings:
             raise ValueError("BOT_MODE 必须是 mention / observe / social")
         if self.backend not in {"codex", "openai"}:
             raise ValueError("MODEL_BACKEND 必须是 codex / openai")
-        if not (1 <= self.daily_calls <= 10000 and 0 <= self.social_calls <= self.daily_calls):
-            raise ValueError("每日调用次数必须在 1–10000，社交次数不得超过总数")
-        if self.social_gap < 60 or not all(0 <= h <= 23 for h in (self.quiet_start, self.quiet_end)):
-            raise ValueError("社交冷却至少 60 秒；安静时段使用 0–23 小时")
+        if (self.daily_calls < -1 or self.social_calls < -1 or
+                (self.daily_calls >= 0 and (self.social_calls == -1 or self.social_calls > self.daily_calls))):
+            raise ValueError("调用次数用-1表示不设本地日上限，0表示禁用；有限总额下社交次数不得超过总额")
+        if self.social_gap < 5 or not all(0 <= h <= 23 for h in (self.quiet_start, self.quiet_end)):
+            raise ValueError("无关插话冷却至少 5 秒；安静时段使用 0–23 小时")
+        if not 15 <= self.conversation_window <= 900 or not 0 <= self.debounce_seconds <= 5:
+            raise ValueError("接续窗口15–900秒，消息合并等待0–5秒")
+        if not self.aliases or any(not a.strip() or len(a) > 32 for a in self.aliases):
+            raise ValueError("昵称不能为空且长度不得超过32字符")
         ZoneInfo(self.timezone)
 
     def quiet(self, hour):
@@ -40,9 +48,12 @@ class Settings:
         return cls(allowed=ids("ALLOWED_CHANNEL_IDS"), observed=ids("OBSERVED_CHANNEL_IDS"),
                    mode=os.getenv("BOT_MODE", "mention"), backend=os.getenv("MODEL_BACKEND", "codex"),
                    timezone=os.getenv("BOT_TIMEZONE", "America/Toronto"),
-                   daily_calls=int(os.getenv("DAILY_MODEL_CALLS", "100")),
-                   social_calls=int(os.getenv("DAILY_SOCIAL_CALLS", "12")),
-                   social_gap=int(os.getenv("SOCIAL_COOLDOWN_SECONDS", "600")),
+                   daily_calls=int(os.getenv("DAILY_MODEL_CALLS", "-1")),
+                   social_calls=int(os.getenv("DAILY_SOCIAL_CALLS", "-1")),
+                   social_gap=int(os.getenv("SOCIAL_COOLDOWN_SECONDS", "30")),
+                   conversation_window=int(os.getenv("CONVERSATION_WINDOW_SECONDS", "180")),
+                   debounce_seconds=float(os.getenv("MESSAGE_DEBOUNCE_SECONDS", "1.5")),
+                   aliases=tuple(a.strip() for a in os.getenv("BOT_ALIASES", "GPT娘,大白龙,龙娘,小龙").split(",") if a.strip()),
                    quiet_start=int(os.getenv("QUIET_START_HOUR", "23")),
                    quiet_end=int(os.getenv("QUIET_END_HOUR", "8")))
 
