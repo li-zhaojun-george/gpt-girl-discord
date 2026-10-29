@@ -1,5 +1,6 @@
 """Channel names are context, never executable instructions or permissions."""
 import copy
+from urllib.parse import urlsplit
 
 def channel_context(channel):
     name = str(getattr(channel,'name',''))[:100]
@@ -18,10 +19,24 @@ def channel_context(channel):
         theme,guidance = 'discussion','公开游戏或科技趣事；核对来源，不传播私人八卦或未经证实的指控。'
     elif any(w in name for w in ('表情','整活')):
         theme,guidance = 'humor','轻松表情与无伤大雅的趣事，不针对个人羞辱。'
-    formats = ['meme'] if any(w in name for w in ('图片','表情包')) else ['video'] if '视频' in name else ['meme','video','article']
+    formats = ['meme'] if any(w in name for w in ('图片','表情包')) else ['video'] if '视频' in name else ['meme','article']
     proactive = not any(w in name for w in ('黄色','色情','成人','公告','规则','人员变动','日志','待机'))
     return dict(name=name,category=category,topic=topic,theme=theme,guidance=guidance,
                 formats=formats,proactive=proactive)
+
+def allows_interest_share(channel,kind,url):
+    context=channel_context(channel)
+    if not context['proactive'] or kind not in context['formats']:
+        return False
+    parsed=urlsplit(url)
+    host=(parsed.hostname or '').lower()
+    video_url=(host in {'youtube.com','www.youtube.com','m.youtube.com','youtu.be'} or
+               ((host=='bilibili.com' or host.endswith('.bilibili.com')) and
+                parsed.path.startswith(('/video/','/bangumi/play/'))))
+    # Do not let a mislabeled article or a redirect bypass the destination policy.
+    if video_url and (kind!='video' or '视频' not in context['name']):
+        return False
+    return True
 
 def channel_interests(profile,channel):
     context = channel_context(channel)
