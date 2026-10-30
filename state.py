@@ -76,6 +76,13 @@ class State:
             # Other replies may have paraphrased this user's observed messages.
             # Discard the channel's derived short-term exchanges as well.
             db.execute("DELETE FROM exchanges WHERE scope=?", (scope,))
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='memory_people'").fetchone():
+                db.execute('DELETE FROM memory_people WHERE scope=? AND user=?',(scope,str(user)))
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='participation_actions'").fetchone():
+                db.execute('DELETE FROM participation_actions WHERE scope=?',(scope,))
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='conversation_topics'").fetchone():
+                # Topic snapshots combine multiple speakers; rebuild from fresh public messages.
+                db.execute('DELETE FROM conversation_topics WHERE scope=?', (scope,))
             if db.execute("SELECT 1 FROM sqlite_master WHERE name='social_memories'").fetchone():
                 ids = [r[0] for r in db.execute('''SELECT id FROM social_memories WHERE scope=? AND
                     (owner=? OR id IN (SELECT memory_id FROM memory_evidence WHERE user_id=?))''',
@@ -132,4 +139,3 @@ class State:
     def finish(self, reminder_id, status):
         with self.db() as db:
             db.execute("UPDATE reminders SET status=? WHERE id=?", (status, reminder_id))
-

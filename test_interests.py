@@ -13,7 +13,7 @@ from interests import InterestEngine, InterestStore, candidate, load_profile
 from media import Media, MediaFetcher, PublicResolver, canonical_url, image_extension, public_url
 from settings import Settings
 from state import State
-from channel_context import channel_context, channel_interests
+from channel_context import channel_context, channel_interests, allows_interest_share
 
 PROFILE = Path(__file__).with_name('interests.json')
 
@@ -37,7 +37,7 @@ class InterestTests(unittest.IsolatedAsyncioTestCase):
         self.engine = InterestEngine(self.bot,self.profile,self.fetcher)
         self.bot.interests = self.engine
         self.permissions = NS(view_channel=True,send_messages=True,attach_files=True)
-        self.channel = NS(id=20,guild=NS(id=10,me=NS()),send=AsyncMock(return_value=NS(id=100)),
+        self.channel = NS(id=20,name='综合视频',guild=NS(id=10,me=NS()),send=AsyncMock(return_value=NS(id=100)),
                           permissions_for=lambda _:self.permissions)
         self.bot.get_channel = lambda _: self.channel
         self.engine.store.ensure('10:20',self.bot.now().timestamp())
@@ -69,6 +69,7 @@ class InterestTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reply_to_share_becomes_followup_with_actual_source_context(self):
         await self.engine.tick()
+        self.provider.structured.return_value={'addressee':'bot','action':'reply'}
         self.provider.complete.reset_mock()
         msg = self.message()
         await self.bot.on_message(msg)
@@ -150,6 +151,7 @@ class InterestTests(unittest.IsolatedAsyncioTestCase):
         self.provider.complete.assert_not_awaited()
 
     async def test_meme_attaches_bytes_with_source_credit(self):
+        self.channel.name='拾表情包'
         self.profile['interests'][0]['formats'] = ['meme']
         self.provider.structured.return_value = {**decision('meme'),'url':'https://tenor.com/view/cat-123'}
         self.fetcher.fetch.return_value = Media('https://tenor.com/view/cat-123','Cat','fun',b'GIF89aDATA','share.gif')
@@ -239,7 +241,7 @@ class InterestTests(unittest.IsolatedAsyncioTestCase):
         async def renamed(*args,**kwargs):
             self.channel.name='学习聊天'
             return decision()
-        self.channel.name='游戏聊天'
+        self.channel.name='游戏视频'
         self.provider.structured.side_effect=renamed
         await self.engine.tick()
         self.channel.send.assert_not_awaited()
@@ -263,7 +265,7 @@ class InterestTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.provider.complete.call_args.args[1]['channel_context']['theme'],'tabletop')
 
     def test_channel_theme_and_format_matrix(self):
-        for name,theme,formats in [('学习聊天','learning',['meme','video','article']),
+        for name,theme,formats in [('学习聊天','learning',['meme','article']),
                                    ('游戏图片','games',['meme']),('欣赏视频','art',['video']),
                                    ('吃瓜视频','discussion',['video']),('拾表情包','humor',['meme'])]:
             c=NS(name=name)
@@ -272,6 +274,53 @@ class InterestTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(choice['formats'],formats)
         for name in ('黄色图片','人员变动','待机频道'):
             self.assertFalse(channel_interests(self.profile,NS(name=name)))
+
+    async def test_secondary_chat_does_not_search_for_or_send_video(self):
+        self.channel.name='次要聊天'
+        await self.engine.tick()
+        payload=self.provider.structured.call_args.args[1]
+        self.assertNotIn('video',payload['interest']['formats'])
+        self.channel.send.assert_not_awaited()
+        self.fetcher.fetch.assert_not_awaited()
+
+    async def test_video_mislabeled_as_article_cannot_bypass_chat_restriction(self):
+        self.channel.name='次要聊天'
+        self.provider.structured.return_value=decision('article')
+        await self.engine.tick()
+        self.channel.send.assert_not_awaited()
+        self.fetcher.fetch.assert_not_awaited()
+
+    async def test_redirected_video_is_blocked_before_chat_send(self):
+        self.channel.name='次要聊天'
+        self.provider.structured.return_value={**decision('article'),'url':'https://www.python.org/about/'}
+        await self.engine.tick()
+        self.fetcher.fetch.assert_awaited_once()
+        self.channel.send.assert_not_awaited()
+
+    async def test_video_destination_does_not_fall_back_to_chat_when_unavailable(self):
+        self.channel.name='综合视频'
+        self.permissions.send_messages=False
+        chat=NS(**vars(self.channel))
+        chat.id=21
+        chat.name='次要聊天'
+        chat.send=AsyncMock()
+        chat.permissions_for=lambda _:NS(view_channel=True,send_messages=True,attach_files=True)
+        self.bot.settings.allowed.add(21)
+        self.bot.settings.interest_channels.add(21)
+        self.bot.get_channel=lambda cid: self.channel if cid==20 else chat
+        self.engine.store.ensure('10:21',self.bot.now().timestamp())
+        self.engine.store.defer('10:21',0)
+        await self.engine.tick()
+        self.channel.send.assert_not_awaited()
+        chat.send.assert_not_awaited()
+
+    def test_video_channel_policy_matrix(self):
+        for name in ('次要聊天','主要聊天','游戏聊天','学习频道','桌游杂谈','综合图片','拾表情包'):
+            self.assertNotIn('video',channel_context(NS(name=name))['formats'])
+            self.assertFalse(allows_interest_share(NS(name=name),'video','https://www.bilibili.com/video/BV123'))
+        for name in ('综合视频','游戏视频','欣赏视频','吃瓜视频'):
+            self.assertTrue(allows_interest_share(NS(name=name),'video','https://www.bilibili.com/video/BV123'))
+        self.assertFalse(allows_interest_share(NS(name='黄色视频'),'video','https://www.bilibili.com/video/BV123'))
 
     async def test_caption_cannot_add_unverified_links_or_mentions(self):
         self.provider.complete.return_value = ('reply','@everyone https://example.invalid')

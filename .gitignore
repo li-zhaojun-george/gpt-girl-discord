@@ -13,3 +13,4 @@ daily-budget.sqlite3*
 data/
 *.sqlite3-*
 .test-tmp/
+eval-reports/

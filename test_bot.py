@@ -41,6 +41,26 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
             msg.reply.assert_not_awaited()
         self.provider.complete.assert_not_awaited()
 
+    @patch('bot.resolve_reference',AsyncMock(return_value=None))
+    async def test_fat_dragon_nickname_replies_at_night_without_allowing_ambient(self):
+        self.bot.settings.mode='social'
+        self.bot.settings.observed={20}
+        self.bot.settings.social_calls=0
+        self.bot.now=lambda:datetime(2026,10,29,0,37,tzinfo=ZoneInfo('America/Toronto'))
+        self.bot.last_social['10:20']=time.monotonic()
+        ambient=self.message('如何评价上面的键盘',user=2)
+        await self.bot.on_message(ambient)
+        await asyncio.gather(*list(self.bot.pending.values()))
+        self.provider.complete.assert_not_awaited()
+        named=self.message('大肥龙，如何评价⬆️')
+        await self.bot.on_message(named)
+        await asyncio.gather(*list(self.bot.pending.values()))
+        self.provider.complete.assert_awaited_once()
+        self.assertEqual(self.provider.complete.call_args.args[1]['route'],'named')
+        named.reply.assert_awaited_once()
+        ambient.reply.assert_not_awaited()
+
+    @patch('bot.resolve_reference',AsyncMock(return_value=None))
     async def test_direct_reply_and_mentions_disable_pings(self):
         msg = self.message("接着说", reference=NS(resolved=NS(author=NS(id=99), channel=NS(id=20))))
         await self.bot.on_message(msg)
