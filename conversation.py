@@ -49,7 +49,8 @@ class ConversationRouter:
         named = bool(self.aliases.match(re.sub(r"\s+", "", text)))
         if named:
             return Route("named", "vocative_alias", targets, reply_to)
-        if (not targets and reply_to == message.author.id and getattr(resolved, 'attachments', None)
+        if (not targets and reply_to == message.author.id
+                and (getattr(resolved, 'attachments', None) or getattr(resolved, 'stickers', None))
                 and getattr(reference, 'channel_id', message.channel.id) == message.channel.id):
             return Route("followup", "own_attachment_question", targets, reply_to)
         if targets or reference is not None:

@@ -10,6 +10,7 @@ import io
 import logging
 import time
 from collections import OrderedDict
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -49,10 +50,36 @@ visible_text记录清晰可辨的原文（最多1200字，模糊处标不清楚�
 没有可见依据就明确未知，不迎合问题中的错误前提。'''
 
 
+@dataclass(frozen=True)
+class StickerImage:
+    id: int
+    format_type: int
+    kind: str = 'sticker'
+
+
 def image_attachments(message):
-    return [a for a in getattr(message, 'attachments', ())
+    """Image candidates, including unsupported stickers so failure is explicit.
+
+    Sticker names/URLs are deliberately not provided to the model or downloader.
+    discord.py exposes StickerItem.format (the API calls it format_type).
+    """
+    attachments = [a for a in getattr(message, 'attachments', ())
             if str(getattr(a, 'content_type', '') or '').startswith('image/')
             or str(getattr(a, 'filename', '')).lower().endswith(EXTENSIONS)]
+    for sticker in getattr(message, 'stickers', ()):
+        fmt = getattr(sticker, 'format', None)
+        attachments.append(StickerImage(int(sticker.id), int(getattr(fmt, 'value', 0))))
+    return attachments
+
+
+def asset_kind(asset):
+    return 'sticker' if isinstance(asset, StickerImage) else 'attachment'
+
+
+def sticker_url(sticker):
+    if sticker.format_type != 1 or not 0 < sticker.id < 2**64:
+        raise ValueError('Only static PNG stickers are supported')
+    return f'https://cdn.discordapp.com/stickers/{sticker.id}.png'
 
 
 def image_url(url, channel_id, attachment_id):
@@ -65,9 +92,12 @@ def image_url(url, channel_id, attachment_id):
 
 
 async def download(attachment, channel_id):
-    if not 0 < getattr(attachment, 'size', 0) <= MAX_BYTES:
-        raise ValueError('Image exceeds 10 MiB or has no size')
-    url = image_url(attachment.url, channel_id, attachment.id)
+    if isinstance(attachment, StickerImage):
+        url = sticker_url(attachment)
+    else:
+        if not 0 < getattr(attachment, 'size', 0) <= MAX_BYTES:
+            raise ValueError('Image exceeds 10 MiB or has no size')
+        url = image_url(attachment.url, channel_id, attachment.id)
     # Never send Discord credentials; no redirects to arbitrary URLs.
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=12)) as session:
         async with session.get(url, allow_redirects=False) as response:
@@ -108,6 +138,7 @@ def normalize(data):
 
 def source_identity(message, attachment):
     return {'message_id': str(message.id), 'attachment_id': str(attachment.id),
+            'kind': asset_kind(attachment),
             'user_id': str(message.author.id),
             'content_hash': hashlib.sha256(message.content.encode('utf-8')).hexdigest()}
 
@@ -220,7 +251,8 @@ class Vision:
                 if raw['use_images']:
                     for old in previous:
                         target = await fetch(old['message_id'])
-                        attachment = next((a for a in image_attachments(target) if str(a.id) == old['attachment_id']), None)
+                        attachment = next((a for a in image_attachments(target) if str(a.id) == old['attachment_id']
+                                           and asset_kind(a) == old.get('kind', 'attachment')), None)
                         if attachment is None or source_identity(target, attachment) != old['source']:
                             raise ValueError('Image source changed')
                         selected.append((target, attachment, old['sha256']))
@@ -231,7 +263,7 @@ class Vision:
                 return {'images': [], 'errors': ['上一轮图片暂时无法核对，请重新发送或引用图片。']}
         unique = {}
         for target, attachment, expected_hash in selected:
-            unique[(target.id, attachment.id)] = (target, attachment, expected_hash)
+            unique[(target.id, asset_kind(attachment), attachment.id)] = (target, attachment, expected_hash)
         if not unique:
             return empty
         if not getattr(b.provider, 'supports_images', False):
@@ -242,6 +274,8 @@ class Vision:
         for target, attachment, expected_hash in list(unique.values())[:MAX_IMAGES]:
             try:
                 check_current()
+                if isinstance(attachment, StickerImage):
+                    sticker_url(attachment)  # Reject animation before any download/vision call.
                 data = await download(attachment, message.channel.id)
                 digest = hashlib.sha256(data).hexdigest()
                 if expected_hash and expected_hash != digest:
@@ -252,7 +286,7 @@ class Vision:
                                 'sha256': digest, 'caption': target.content[:800]})
                 pixels.append(normalized)
             except (ValueError, OSError, aiohttp.ClientError, asyncio.TimeoutError, Image.DecompressionBombError):
-                empty['errors'].append(f'消息{target.id}的一个附件未读取：可能失效、格式不支持、为动图或超过大小限制。')
+                empty['errors'].append(f'消息{target.id}的一个图片/贴纸未读取：可能失效、格式不支持、为动图或超过大小限制。')
         if not pixels:
             return empty
         provider = copy.copy(b.provider)
@@ -272,4 +306,7 @@ class Vision:
             if set(row) != {'image_id', *fields} or any(not isinstance(row[k], str) for k in fields):
                 raise ValueError('Invalid visual details')
             record.update({k: row[k][:limit] for k, limit in fields.items()})
+        check_current()
+        LOG.info('Visual read channel=%s message=%s sources=%s', message.channel.id, message.id,
+                 [(r['message_id'], r['kind'], r['attachment_id']) for r in records])
         return {'images': records, 'errors': empty['errors']}

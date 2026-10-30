@@ -13,16 +13,16 @@
 
 ## 范围
 
-支持 Discord 上传的 PNG、JPEG、静态 WebP、静态 GIF。每轮最多4张，单张原始文件最多10 MiB、2000万像素，按比例缩到最长边2048像素。纠正 EXIF 方向，透明背景合成白底，交给模型前转换为不带原始元数据的 PNG。
+支持 Discord 上传的 PNG、JPEG、静态 WebP、静态 GIF，以及原生静态 PNG 贴纸（format_type=1）。贴纸从消息的 stickers 字段读取，依其 ID 构造 Discord CDN 地址，读取实际像素；名称不是视觉证据。每轮最多4张，单张原始文件最多10 MiB、2000万像素，按比例缩到最长边2048像素。纠正 EXIF 方向，透明背景合成白底，交给模型前转换为不带原始元数据的 PNG。
 
-动画 GIF/WebP/APNG 会明确标为未读取，不把首帧冒充完整动图。外链网页、嵌入预览、贴纸、自定义表情和视频不在本阶段范围。小字、模糊图和复杂画面的准确性需要持续用真实样本验证；不能看清时应说明未知。
+动画 GIF/WebP/APNG 和动画贴纸（APNG/Lottie/GIF）会明确标为未读取，不把首帧冒充完整动图。外链网页、嵌入预览、自定义表情和视频不在本阶段范围。小字、模糊图和复杂画面的准确性需要持续用真实样本验证；不能看清时应说明未知。
 
 ## 处理流程
 
 1. 消息层保留附件来源与批次，纯图片不再被空文字过滤。
 2. `vision.py` 优先使用当前附件及明确引用；续话用 Codex 语义判断是否继续看原图。按频道、用户分开保存短期来源，最长30分钟、最多128组，不跨频道取图。
 3. 旧图每次重新读取 Discord 来源、作者、附件与权限；连续追问额外核对原消息文字和图片内容哈希。失效、编辑、删除或退出记录会使旧上下文失效。引用优先于上一张图。
-4. 只从匹配当前频道/附件 ID 的 Discord CDN 地址下载，无机器人凭证、不跟随跳转，流式限制体积。Pillow 解码并限制像素及动画。
+4. 附件仅使用匹配当前频道/附件 ID 的 Discord CDN 地址；贴纸仅使用从经过消息核对的数字 ID 构造的 `https://cdn.discordapp.com/stickers/{id}.png`。贴纸没有附件 size 字段，仍执行响应长度、流式体积和解码后的像素/动画限制。下载不带机器人凭证、不跟随跳转。来源按消息 ID、资源类型和资源 ID 区分。
 5. `CodexProvider.structured(..., images=...)` 在该次临时目录中写入规范 PNG，经 `codex exec --image` 交给现有登录模型；保留禁用 shell、插件、任意文件读取工具等设置，无 API 回退。成功、失败、取消后均清理调用临时文件。
 6. 视觉步骤输出有来源的画面、可见文字、当前问题细节和不确定处；话题理解、接话判断及最终回答都得到这些观察。每次追问重新读取像素，不只重复上一轮摘要。
 
@@ -35,3 +35,5 @@
 部署前另以真实 Codex 登录进行合成图识别与对话回放，验证画面、OCR 和来源关联。脚本断言只能检查已覆盖场景，不代表所有表情包/截图都能准确理解。
 
 实现参考了 [AstrBot 的图片处理思路](https://github.com/AstrBotDevs/AstrBot/blob/master/docs/zh/providers/image-formats.md)与 [MaiBot 的来源和缓存思路](https://github.com/Mai-with-u/MaiBot/blob/main/src/chat/image_system/image_manager.py)，未复制其实现。Codex 图片入口见[官方命令文档](https://learn.chatgpt.com/docs/developer-commands?surface=cli)。
+
+贴纸格式和地址依据 [Discord Sticker Resource](https://docs.discord.com/developers/resources/sticker) 与 [CDN Image Formatting](https://docs.discord.com/developers/reference#image-formatting)。

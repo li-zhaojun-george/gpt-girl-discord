@@ -36,7 +36,10 @@ emotion描述这次表达的情绪色彩（最多3个短词），不是对群友
 发图的人不是画面中的人；图中的“我”也不自动等于发图者。别人发的图被引用时，当前提问者不是原发图者。
 current是现在问话/发图的人；visual每张图有user_id和caption。讨论原图作者当时的意图时必须看原图前的对话；缺少当时语境就承认不知道，不把现在聊天倒灌成原图作者的意思。
 bot_names是机器人的称呼；“大白龙”等呼唤不是图片的标题，不需要与图中文字一致。
+linked_messages是已核对的同一人连续发送的文字与本轮图的关联；分别保留message_id和user_id。称呼“大白龙，终于赢了/连输五局了”通常是发言者报告自己的经历，不能改成机器人经历。
+旧机器人回复可能认错主语，不能作为机器人真的玩过游戏的证据。区分经历主体和表情表达对象；target=bot也不表示机器人有这段经历。
 messages按时间排序，有些内容可能是岔开的多人话题。不能仅因某人的话最近、或群友被提过名就认定图在嘲讽他。
+同一发言者刚描述自己的失败后发“好耶”等反差表情，中间别人插入一句无关闲聊不等于原话题结束。证据支持自嘲或抱怨时优先选self_mockery或complaint，reaction用于无法分辨具体作用的一般反应；仍保留真实的不确定性。
 target=self/bot/person/situation/unknown分别表示表达对象；self只指当前发言者，person需要具体上下文证据。
 target_user_id仅在person时填写messages中有证据的身份ID，否则为空；不能凭空制造针对某人的恶意。
 evidence_ids只选确实支持本次解释的messages/current消息ID，不要把全部消息都列入。无证据不硬猜。
@@ -52,6 +55,8 @@ common_usage/current_meaning/uncertainty每项最多200字。只输出schema。
 
 REPLY_RULES = '''
 meme_context是基于实际图片和本轮语境的暂时解读，不是群友真实心理或永久事实。
+current_speaker_id、resolved_target_user_id是Discord人物ID；self永远指当前群友，不是生成回复的你。用“你”回应群友自身的经历，不能说成“我刚赢了/我连输了”。
+可以说“我替你高兴/我给你鼓劲”，不能声称自己打了那局、掉了分、要复盘自己的对局。前面误把战绩当成自己的话不应继续沿用。
 visible事实优先于meme_context猜测；用户纠正优先于旧机器人解释。不要把笑脸机械理解成开心，留意反讽和自嘲。
 普通接梗就回应正在聊的事，通常一句，最多两句；不要报“情绪/语气/含义/置信度”等分析字段，也不要自动解释梗。
 称呼只是叫你，直接接眼前的话题，不先评论称呼、不说对方喊得太大声。不要把自己的龙角、尾巴等角色属性安在群友身上。
@@ -96,6 +101,8 @@ def validate(raw, rows, current, visual):
         result.update(confidence='low', target='unknown', target_user_id='',
                       current_meaning='', uncertainty='缺少能确认本次用意的对话证据；只能参考常见用法。')
     result['evidence'] = [sources[i] for i in dict.fromkeys(ids)]
+    result['current_speaker_id'] = current['user_id']
+    result['resolved_target_user_id'] = current['user_id'] if result['target'] == 'self' else result['target_user_id']
     result['status'] = 'interpreted'
     return result
 
@@ -130,11 +137,17 @@ async def interpret(bot, message, text, visual, reference, route):
                 rows.sort(key=lambda r: (r['time'], int(r['message_id'])))
         if stale():
             return fallback
-        current = {'message_id': str(message.id), 'user_id': str(message.author.id), 'text': text[:2000]}
+        # Explicit fragment evidence remains available even if topic retrieval
+        # selected a different subset. Preserve its original message identity.
+        for linked in visual.get('linked_messages', []):
+            if linked['message_id'] not in {r['message_id'] for r in rows}:
+                rows.append(linked)
+        current = {'message_id': str(message.id), 'user_id': str(message.author.id), 'text': message.content[:2000] or '[发送了图片附件]'}
         provider = copy.copy(bot.provider)
         provider.web_search = 'disabled'
         bot.vision.reserve(route == 'ambient')
         raw = await provider.structured(RULES, {'current': current, 'messages': rows,
+            'question': text, 'linked_messages': visual.get('linked_messages', []),
             'visual': visual['images'], 'explicit_reply_id': str(getattr(getattr(message, 'reference', None), 'message_id', '') or ''),
             'route': route, 'bot_user_id': str(bot.user.id), 'bot_names': list(bot.settings.aliases)}, SCHEMA)
         if stale():

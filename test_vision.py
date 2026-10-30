@@ -101,12 +101,14 @@ class Scene:
                 if not limit:
                     break
 
-    def make(self, mid, text='', *, image=False, user=1, reference=None):
+    def make(self, mid, text='', *, image=False, user=1, reference=None, sticker=None, sticker_format=1):
         attachments = [NS(id=mid*10, filename='picture.png', content_type='image/png', size=1000,
                           url=f'https://cdn.discordapp.com/attachments/20/{mid*10}/picture.png')] if image else []
         msg = NS(id=mid, content=text, author=NS(id=user, bot=user==99, display_name=f'User{user}'),
                  guild=self.guild, channel=self.channel, attachments=attachments, webhook_id=None,
                  created_at=datetime.now(timezone.utc), reference=reference)
+        msg.stickers = [discord.StickerItem(state=None, data={'id': str(sticker), 'name': 'untrusted-name',
+                       'format_type': sticker_format})] if sticker else []
         async def reply(text, **kwargs):
             self.replies.append(text)
             return NS(id=100000+mid)
