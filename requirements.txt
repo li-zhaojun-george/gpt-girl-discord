@@ -4,3 +4,4 @@ python-dotenv>=1,<2
 tzdata>=2025.2
 aiohttp>=3.9,<4
 Pillow>=12.1.1,<14
+rlottie-python==1.3.3

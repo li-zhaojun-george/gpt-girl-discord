@@ -95,7 +95,7 @@ class StickerFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.scene.provider.answers[-1]['visual_context']['images'][0]['user_id'], '2')
 
     async def test_unsupported_sticker_not_claimed_as_seen_or_named_as_evidence(self):
-        for fmt in (2, 3, 4):
+        for fmt in (0, 5):
             await self.scene.send(self.scene.make(fmt, '<@99> 看这张', sticker=123, sticker_format=fmt))
             payload = self.scene.provider.answers[-1]
             self.assertFalse(payload['capabilities']['images'])
@@ -197,7 +197,10 @@ class StickerDownloadTests(unittest.IsolatedAsyncioTestCase):
 class StickerIdentityTests(unittest.TestCase):
     def test_static_cdn_url_is_constructed_from_id_only(self):
         self.assertEqual(sticker_url(StickerImage(123, 1)), 'https://cdn.discordapp.com/stickers/123.png')
-        for asset in (StickerImage(123, 2), StickerImage(-1, 1), StickerImage(2**64, 1)):
+        self.assertEqual(sticker_url(StickerImage(123, 2)), 'https://cdn.discordapp.com/stickers/123.png')
+        self.assertEqual(sticker_url(StickerImage(123, 3)), 'https://cdn.discordapp.com/stickers/123.json')
+        self.assertEqual(sticker_url(StickerImage(123, 4)), 'https://media.discordapp.net/stickers/123.gif')
+        for asset in (StickerImage(123, 5), StickerImage(-1, 1), StickerImage(2**64, 1)):
             with self.assertRaises(ValueError): sticker_url(asset)
 
     def test_self_target_resolves_to_current_human_not_bot(self):
