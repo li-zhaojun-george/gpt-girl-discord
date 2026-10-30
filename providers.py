@@ -1,4 +1,4 @@
-"""Text-only model adapters. No automatic paid API fallback."""
+"""Codex text/static-image adapter. No automatic paid API fallback."""
 import asyncio
 import json
 import os
@@ -27,6 +27,7 @@ def parse_decision(raw):
     return data["action"], text[:1900]
 
 class CodexProvider:
+    supports_images = True
     def __init__(self, runtime, executable="codex", model="", timeout=90, web_search="disabled"):
         self.runtime = Path(runtime).resolve()
         self.runtime.mkdir(parents=True, exist_ok=True)
@@ -63,7 +64,7 @@ class CodexProvider:
         data = await self.structured(instructions, payload, SCHEMA)
         return parse_decision(json.dumps(data))
 
-    async def structured(self, instructions, payload, schema, require_search=False):
+    async def structured(self, instructions, payload, schema, require_search=False, *, images=()):
         # A fresh empty working directory + application-owned context. No inherited
         # project instructions, personal MCP config, or opaque resumed chat history.
         with tempfile.TemporaryDirectory(prefix="turn-", dir=self.runtime) as folder:
@@ -76,6 +77,18 @@ class CodexProvider:
                      "SSL_CERT_FILE", "SSL_CERT_DIR"}
             env = {k: v for k, v in os.environ.items() if k.upper() in names}
             args = self.command(directory)
+            if images:
+                if require_search or self.web_search != 'disabled':
+                    raise ValueError('Visual observation must not search')
+                if len(images) > 4:
+                    raise ValueError('Too many images')
+                for index, data in enumerate(images):
+                    if (not isinstance(data, bytes) or not data.startswith(b'\x89PNG\r\n\x1a\n')
+                            or len(data) > 10 * 1024 * 1024):
+                        raise ValueError('Expected normalized bounded PNG')
+                    path = directory / f'image-{index + 1}.png'
+                    path.write_bytes(data)
+                    args = [*args[:-1], '--image', str(path), args[-1]]
             events = None
             if require_search:
                 if self.web_search == "disabled":
@@ -138,4 +151,3 @@ class OpenAIProvider:
                              "strict": True, "schema": SCHEMA}})
         self.budget.settle(reservation, response.usage)
         return parse_decision(response.output_text)
-
