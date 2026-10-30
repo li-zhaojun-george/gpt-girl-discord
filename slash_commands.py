@@ -121,6 +121,7 @@ class SlashControls:
                 f'后端：{cfg.backend} · 模式：{cfg.mode}\n'
                 f'频道方向：{channel_context(interaction.channel)["guidance"]}\n'
                 f'自动记忆：{"开启" if interaction.channel_id in cfg.memory_channels else "关闭"}\n'
+                f'持续话题：{len(self.bot.topics.store.rows(scope,30)) if self.bot.topics and interaction.channel_id in cfg.memory_channels else 0} 个（30天未更新过期）\n'
                 f'兴趣分享：{"已配置（可用 /分享 状态 查看）" if interaction.channel_id in cfg.interest_channels else "关闭"}\n'
                 f'你的记录设置：{"已停止" if self.bot.state.muted(scope,interaction.user.id) else "允许记录"}\n'
                 f'当前安静时段：{"是" if cfg.quiet(self.bot.now().hour) else "否"}（正常对话仍可进行）')
