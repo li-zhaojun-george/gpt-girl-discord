@@ -106,7 +106,7 @@ class SlashControls:
             await self.show(interaction,
                 '/用量：今天调用了多少次\n/状态：当前模式、功能和记录设置\n'
                 '/记忆 查看、自动、共同、来源：查看记忆\n/记忆 保存、确认、更正、删除、清空：管理记忆\n'
-                '/提醒 创建、列表、取消：管理自己的提醒\n/分享 状态、暂停、恢复：主动分享（修改需管理服务器权限）\n'
+                '/提醒 创建、列表、取消：管理自己的提醒\n/分享 状态、暂停、恢复：主动分享和话题关心（修改需管理服务器权限）\n'
                 '/记录 停止、恢复：退出或恢复记录\n'
                 '这些操作结果仅自己可见；到期提醒仍发到当前频道。原来的 @ 文字命令继续可用。')
 
@@ -122,7 +122,7 @@ class SlashControls:
                 f'频道方向：{channel_context(interaction.channel)["guidance"]}\n'
                 f'自动记忆：{"开启" if interaction.channel_id in cfg.memory_channels else "关闭"}\n'
                 f'持续话题：{len(self.bot.topics.store.rows(scope,30)) if self.bot.topics and interaction.channel_id in cfg.memory_channels else 0} 个（30天未更新过期）\n'
-                f'兴趣分享：{"已配置（可用 /分享 状态 查看）" if interaction.channel_id in cfg.interest_channels else "关闭"}\n'
+                f'主动分享/话题关心：{"已配置（可用 /分享 状态 查看）" if interaction.channel_id in cfg.interest_channels else "关闭"}\n'
                 f'你的记录设置：{"已停止" if self.bot.state.muted(scope,interaction.user.id) else "允许记录"}\n'
                 f'当前安静时段：{"是" if cfg.quiet(self.bot.now().hour) else "否"}（正常对话仍可进行）')
 
@@ -185,7 +185,7 @@ class SlashControls:
         async def reminder_cancel(interaction: discord.Interaction,编号: app_commands.Range[int,1,999999999999]):
             await self.invoke(interaction,f'取消提醒 {编号}')
 
-        sharing = app_commands.Group(name='分享',description='查看或管理本频道主动兴趣分享',guild_only=True)
+        sharing = app_commands.Group(name='分享',description='查看或管理本频道主动分享与话题关心',guild_only=True)
         tree.add_command(sharing)
 
         @sharing.command(name='状态',description='查看主动分享是否开启、暂停或等待回应')

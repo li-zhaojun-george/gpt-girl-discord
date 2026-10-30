@@ -69,6 +69,7 @@ class InterestTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reply_to_share_becomes_followup_with_actual_source_context(self):
         await self.engine.tick()
+        self.provider.structured.return_value={'addressee':'bot','action':'reply'}
         self.provider.complete.reset_mock()
         msg = self.message()
         await self.bot.on_message(msg)

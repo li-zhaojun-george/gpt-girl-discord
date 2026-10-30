@@ -26,6 +26,7 @@ from channel_context import channel_context
 from topic_context import resolve_reference
 from topic_state import TopicEngine
 from memory_context import relevant_memories
+from participation import context_bundle, should_join, RULES as PARTICIPATION_RULES
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("gpt-girl")
@@ -137,6 +138,8 @@ class GirlBot(discord.Client):
         self.context.pop(scope, None)
         self.recent_bot.pop(scope, None)
         self.router.clear(scope)
+        if self.interests and self.interests.current and self.interests.scope == scope:
+            self.interests.current.cancel()
         if self.memory:
             self.memory.invalidate(scope)
         if self.topics:
@@ -311,6 +314,8 @@ class GirlBot(discord.Client):
                 "text": text[:500], "time": time.time(),
                 "mentioned_users": list(route.mentioned_users), "reply_to": route.reply_to})
         if route.kind in {"other", "closed"}:
+            if route.kind == 'closed' and self.interests and message.channel.id in self.settings.interest_channels:
+                self.interests.store.wait_for_human(scope,self.now().timestamp())
             self.inboxes.pop(key, None)
             LOG.info("Turn skipped reason=%s channel=%s", route.reason, message.channel.id)
             return
@@ -407,7 +412,13 @@ class GirlBot(discord.Client):
                 return
             if reference_context is not None and reference_context['status']=='unavailable':
                 if interaction:
-                    await self.respond(message,'我还没理清你说的是哪段话题。补一句对象，或回复那条消息，我再接着聊。')
+                    # A missing topic does not authorize interrupting someone else's conversation.
+                    clarification = {'route':kind,'text':text,'speaker':{'id':str(user)},
+                        'history':self.state.history(scope,user),
+                        'participation':context_bundle(reference_context,{},recent,
+                            [r['text'] for r in self.recent_bot.get(scope,[])])}
+                    if await should_join(self,clarification) and not stale():
+                        await self.respond(message,'我还没理清你说的是哪段话题。补一句对象，或回复那条消息，我再接着聊。')
                 return
             # Reserve the actual answer before optional recollection uses remaining capacity.
             if not self.state.reserve_call(now.date().isoformat(), self.settings.daily_calls,
@@ -436,9 +447,14 @@ class GirlBot(discord.Client):
                 payload['recent'] = []
             if self.memory:
                 payload['social_memory'] = await relevant_memories(self,message,text,reference_context,recent,route,social=not interaction)
+            payload['participation'] = context_bundle(reference_context,payload.get('social_memory',{}),recent,
+                                                     [r['text'] for r in self.recent_bot.get(scope,[])])
             if stale():
                 return
-            action, answer = await self.provider.complete(self.persona + DECISION_RULES, payload)
+            if not await should_join(self,payload) or stale():
+                LOG.info('Turn skipped reason=semantic_addressee channel=%s',message.channel.id)
+                return
+            action, answer = await self.provider.complete(self.persona + DECISION_RULES + PARTICIPATION_RULES, payload)
             if stale():
                 LOG.info("Turn discarded reason=newer_message_or_privacy channel=%s", message.channel.id)
                 return
