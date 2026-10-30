@@ -135,7 +135,7 @@ async def resolve_reference(bot,message,text,social=False):
             if stale():
                 return missing
             if rounds==0 and available and getattr(bot,'topics',None):
-                topic_states,evidence=await bot.topics.store.verified(bot,message,rows)
+                topic_states,evidence=await bot.topics.store.verified(bot,message,rows,text,social=social)
                 rows.update(evidence)
                 if stale():
                     return missing

@@ -253,3 +253,27 @@ class TopicStateTests(unittest.IsolatedAsyncioTestCase):
         self.provider.structured.side_effect = append
         await self.engine.tick()
         self.assertEqual([r['message_id'] for r in self.engine.inbox['10:20']], ['2'])
+
+    async def test_old_topic_ranked_before_latest_three_with_live_sources(self):
+        old=self.save()
+        for i in range(2,8):
+            item=snapshot([str(i)],title='泡面做法')
+            item.update(background=['讨论泡面'],progress=[],pending=[])
+            self.save(messages=[self.message(i,'聊泡面')],item=item)
+        self.provider.structured.return_value=dict(queries=['磁轴键盘 选购'],person_ids=[],
+            start_date='',end_date='',time_mode='none')
+        topics,evidence=await self.engine.store.verified(self.bot,self.message(100,'那把打游戏用的选好了吗？'),{})
+        self.assertEqual(topics[0]['topic_id'],old['topic_id'])
+        self.assertIn('1',evidence)
+        self.assertEqual(self.channel.fetch_message.await_count,3)
+
+    async def test_changed_old_topic_is_rejected_after_hybrid_lookup(self):
+        old=self.save()
+        for i in range(2,6):
+            self.save(messages=[self.message(i,'聊其他事')],item=snapshot([str(i)],title='其他事情'))
+        self.source_messages[1].content='已经撤回'
+        self.provider.structured.return_value=dict(queries=['键盘选购'],person_ids=[],
+            start_date='',end_date='',time_mode='none')
+        topics,_=await self.engine.store.verified(self.bot,self.message(100,'键盘选购'),{})
+        self.assertNotIn(old['topic_id'],[t['topic_id'] for t in topics])
+        self.assertNotIn(old['topic_id'],[t['topic_id'] for t in self.engine.store.rows('10:20')])

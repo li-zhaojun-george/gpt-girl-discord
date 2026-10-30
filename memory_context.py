@@ -3,9 +3,11 @@ import asyncio
 import copy
 import logging
 import time
+from datetime import datetime
 
 import discord
 from social_memory import contains_private
+from retrieval import plan_query, rank_rows, recorded_times
 
 LOG = logging.getLogger('gpt-girl')
 EMPTY = {'preferences': [], 'shared_conversations': []}
@@ -22,6 +24,7 @@ current 是当前发言；context 是已确定的话题原文和状态，优先�
 当前明确纠正、临时需求及明确facts优先；旧记忆与它们冲突时排除旧记忆。当前临时需求不等于永久改写喜好。
 同主题冲突记忆优先用户更正/确认及较新的明确内容，不合并成相互矛盾的偏好。
 phase=verify 时，live_evidence 是本轮重新读取的原文，stored_quote只是旧摘录。
+retrieval_query是检索线索而非事实；recorded_dates是证据发言的日期，不是事件发生日期。按当前问题的时间和人物约束选择，不把词义扩展当成真实经历。
 逐条判断完整原文是否仍支持记忆摘要：如果原文是否定、讽刺、转述或已修改含义，即使还包含旧摘录也排除。
 verification=user_control 的证据是本人或实际参与者通过管理命令明确确认/更正的记录，按该记录的意思理解。
 不确定就不选，不能补写新记忆。返回的ID必须属于candidates，不能输出文字或新的事实。
@@ -39,23 +42,20 @@ def select_ids(raw, candidates):
     return ids
 
 
-def candidates_for(bot, scope, user, peers):
-    owners = {str(user), *[str(p) for p in peers[:8]]}
-    rows = [r for r in bot.memory.store.rows(scope, time.time())
+def candidates_for(bot, scope, user, peers, all_people=False):
+    owners = {str(user), *[str(p) for p in peers]}
+    rows = [r for r in bot.memory.store.rows(scope, time.time(),limit=None)
             if r['status'] == 'active' and r['evidence'] and
             not contains_private(r['summary']) and
             not any(bot.state.muted(scope, e['user_id']) for e in r['evidence']) and
-            (r['kind'] == 'episode' or r['owner'] in owners)]
-    # Reserve space for the speaker, peers and episodes; semantic/vector indexing is a later stage.
-    own = [r for r in rows if r['kind'] == 'preference' and r['owner'] == str(user)][:20]
-    peer = [r for r in rows if r['kind'] == 'preference' and r['owner'] != str(user)][:20]
-    episodes = [r for r in rows if r['kind'] == 'episode'][:20]
-    return own + peer + episodes
+            (all_people or r['kind'] == 'episode' or r['owner'] in owners)]
+    return rows
 
 
-def brief(row):
+def brief(row,tz=None):
     return {**{k: row[k] for k in ('id', 'kind', 'owner', 'summary', 'origin', 'updated')},
-            'participants': sorted({e['user_id'] for e in row['evidence']})}
+            'participants': sorted({e['user_id'] for e in row['evidence']}),
+            'recorded_dates':sorted({datetime.fromtimestamp(t,tz).isoformat() for t in recorded_times(row)})}
 
 
 async def relevant_memories(bot, message, text, reference_context, recent, route, social=False):
@@ -74,7 +74,7 @@ async def relevant_memories(bot, message, text, reference_context, recent, route
     context = reference_context if reference_context is not None else {'messages': recent[-8:]}
     peers = list(dict.fromkeys([*(getattr(route, 'mentioned_users', ()) if route else ()),
                                *[r['user_id'] for r in context.get('messages', []) if not r.get('bot')]]))
-    candidates = candidates_for(bot, scope, user, peers)
+    candidates = candidates_for(bot, scope, user, peers,all_people=True)
     if not candidates:
         return copy.deepcopy(EMPTY)
     base = {'current': {'user_id': str(user), 'text': text}, 'context': context,
@@ -88,7 +88,14 @@ async def relevant_memories(bot, message, text, reference_context, recent, route
         return [] if stale() else select_ids(raw, rows)
 
     async def work():
-        ids = await choose([brief(r) for r in candidates], 'select')
+        query=await plan_query(bot,message,text,context,candidates,social=social)
+        if stale():
+            return copy.deepcopy(EMPTY)
+        ranked=rank_rows(candidates,text,query,user,peers,bot.now())
+        base['retrieval_query']=query
+        if not ranked:
+            return copy.deepcopy(EMPTY)
+        ids = await choose([brief(r,bot.now().tzinfo) for r in ranked], 'select')
         if not ids:
             return copy.deepcopy(EMPTY)
         selected = [next(r for r in candidates if r['id'] == i) for i in ids]
@@ -140,23 +147,23 @@ async def relevant_memories(bot, message, text, reference_context, recent, route
                                'verification': 'user_control' if row['origin'] != 'auto' else 'live_source'})
             else:
                 if proofs:
-                    verified.append({**brief(row), 'live_evidence': proofs})
+                    verified.append({**brief(row,bot.now().tzinfo), 'live_evidence': proofs})
         if not verified:
             return copy.deepcopy(EMPTY)
         usable = await choose(verified, 'verify')
         # Re-check the database too: don't use records removed/changed while reading evidence.
-        current = {r['id']: r for r in candidates_for(bot, scope, user, peers)}
+        current = {r['id']: r for r in candidates_for(bot, scope, user, peers,all_people=True)}
         original = {r['id']: r for r in selected}
         result = copy.deepcopy(EMPTY)
         for row in verified:
             if row['id'] in usable and current.get(row['id']) == original[row['id']]:
                 result['preferences' if row['kind'] == 'preference' else 'shared_conversations'].append(row)
-        LOG.info('Memory recall candidates=%s selected=%s used=%s channel=%s',
-                 len(candidates), len(ids), sum(len(v) for v in result.values()), channel.id)
+        LOG.info('Memory recall corpus=%s ranked=%s selected=%s used=%s channel=%s',
+                 len(candidates),len(ranked),len(ids),sum(len(v) for v in result.values()),channel.id)
         return result
 
     try:
-        return await asyncio.wait_for(work(), timeout=35)
+        return await asyncio.wait_for(work(), timeout=50)
     except asyncio.CancelledError:
         raise
     except Exception as exc:

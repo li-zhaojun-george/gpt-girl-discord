@@ -9,6 +9,7 @@ from collections import deque
 
 import discord
 from social_memory import contains_private
+from retrieval import plan_query, rank_rows, fallback_query, people_for
 
 LOG = logging.getLogger('gpt-girl')
 FIELDS = ('background', 'progress', 'pending', 'agreements')
@@ -118,10 +119,16 @@ class TopicStore:
                        (scope, scope))
         return len(result)
 
-    async def verified(self, bot, message, recent):
+    async def verified(self, bot, message, recent, text=None, social=False):
         """Re-fetch evidence, including after restart; changed/deleted sources invalidate the snapshot."""
         scope = f'{message.guild.id}:{message.channel.id}'
-        candidates = self.rows(scope, 3)
+        candidates = [t for t in self.rows(scope, 30)
+                      if not any(bot.state.muted(scope,p) for p in t['participants'])]
+        text = message.content if text is None else text
+        context = {'messages':list(recent.values())[-15:]}
+        query = (await plan_query(bot,message,text,context,candidates,social=social)
+                 if len(candidates)>3 else fallback_query(text,people_for(bot,message,context,candidates)))
+        candidates = rank_rows(candidates,text,query,message.author.id,[],bot.now(),limit=3,topics=True)
         refs = {r['message_id']: r for t in candidates for r in t['sources']}
         rows = dict(recent)
         semaphore = asyncio.Semaphore(4)

@@ -76,6 +76,8 @@ class State:
             # Other replies may have paraphrased this user's observed messages.
             # Discard the channel's derived short-term exchanges as well.
             db.execute("DELETE FROM exchanges WHERE scope=?", (scope,))
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='memory_people'").fetchone():
+                db.execute('DELETE FROM memory_people WHERE scope=? AND user=?',(scope,str(user)))
             if db.execute("SELECT 1 FROM sqlite_master WHERE name='conversation_topics'").fetchone():
                 # Topic snapshots combine multiple speakers; rebuild from fresh public messages.
                 db.execute('DELETE FROM conversation_topics WHERE scope=?', (scope,))

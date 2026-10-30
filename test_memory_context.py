@@ -15,6 +15,12 @@ from memory_context import relevant_memories, candidates_for, select_ids
 
 class MemoryContextTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        # Stage-two tests isolate selection and source verification from query planning.
+        from retrieval import fallback_query
+        self.plan_patch = patch('memory_context.plan_query',AsyncMock(
+            side_effect=lambda bot,message,text,*a,**kw: fallback_query(text,{})))
+        self.plan_patch.start()
+        self.addCleanup(self.plan_patch.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.provider = NS(web_search='live', structured=AsyncMock(), complete=AsyncMock(return_value=('reply', '选不加糖的红茶吧。')))
         self.bot = GirlBot(self.provider, Settings({20,21}, observed={20,21}, memory_channels={20,21}, mode='social'), '', State(Path(self.tmp.name)/'state.db'))

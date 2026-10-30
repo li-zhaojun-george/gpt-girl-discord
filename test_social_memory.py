@@ -105,10 +105,10 @@ class MemoryStoreTests(unittest.TestCase):
         self.state.set_muted('10:20',22,True)
         self.assertEqual(self.store.save('10:20',items,self.now),0)
 
-    def test_expiry_and_per_user_bound(self):
+    def test_distinct_older_memories_survive_until_expiry(self):
         for i in range(24):
             self.save(source(str(i),stamp=self.now+i),key=f'口味{i}')
-        self.assertEqual(len(self.store.rows('10:20',self.now)),20)
+        self.assertEqual(len(self.store.rows('10:20',self.now)),24)
         self.store.prune(self.now+91*86400)
         self.assertEqual(self.store.rows('10:20',self.now+91*86400),[])
         with self.state.db() as db:

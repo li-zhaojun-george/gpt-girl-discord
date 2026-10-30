@@ -110,6 +110,8 @@ class MemoryStore:
                     PRIMARY KEY(memory_id,message_id));
                 CREATE INDEX IF NOT EXISTS memory_evidence_source ON memory_evidence(message_id);
                 CREATE TABLE IF NOT EXISTS memory_notices (scope TEXT PRIMARY KEY, status TEXT);
+                CREATE TABLE IF NOT EXISTS memory_people (
+                    scope TEXT, user TEXT, names TEXT, updated REAL, PRIMARY KEY(scope,user));
             ''')
 
     @staticmethod
@@ -154,20 +156,42 @@ class MemoryStore:
                     db.execute('INSERT OR REPLACE INTO memory_evidence VALUES (?,?,?,?,?)',
                                (memory_id,evidence['message_id'],evidence['user_id'],evidence['quote'],evidence['time']))
                 saved += 1
-            # Bound preferences per person and shared episodes per channel, including candidates.
-            owners = [r[0] for r in db.execute("SELECT DISTINCT owner FROM social_memories WHERE scope=? AND kind='preference'",(scope,))]
-            for owner in owners:
-                self.delete_ids(db,[r[0] for r in db.execute("SELECT id FROM social_memories WHERE scope=? AND owner=? AND kind='preference' ORDER BY updated DESC LIMIT -1 OFFSET 20",(scope,owner))])
-            self.delete_ids(db,[r[0] for r in db.execute("SELECT id FROM social_memories WHERE scope=? AND kind='episode' ORDER BY updated DESC LIMIT -1 OFFSET 50",(scope,))])
+            # Retain distinct valid memories until expiry/deletion; recent-count trimming
+            # would permanently erase the older events that hybrid retrieval needs.
         return saved
 
-    def rows(self,scope,now):
+    def rows(self,scope,now,limit=250):
         self.prune(now)
         with self.state.db() as db:
-            rows = [dict(r) for r in db.execute('SELECT * FROM social_memories WHERE scope=? ORDER BY updated DESC LIMIT 250',(scope,))]
+            rows = [dict(r) for r in db.execute('SELECT * FROM social_memories WHERE scope=? ORDER BY updated DESC LIMIT ?',
+                                               (scope,-1 if limit is None else limit))]
+            mapped={r['id']:r for r in rows}
             for row in rows:
-                row['evidence'] = [dict(e) for e in db.execute('SELECT message_id,user_id,quote,created FROM memory_evidence WHERE memory_id=? ORDER BY created',(row['id'],))]
+                row['evidence']=[]
+            for proof in db.execute('''SELECT e.* FROM memory_evidence e JOIN social_memories m ON m.id=e.memory_id
+                                       WHERE m.scope=? ORDER BY e.created''',(scope,)):
+                if proof['memory_id'] in mapped:
+                    mapped[proof['memory_id']]['evidence'].append({k:proof[k] for k in ('message_id','user_id','quote','created')})
             return rows
+
+    def observe_person(self,scope,user,names):
+        if self.state.muted(scope,user):
+            return
+        names=[n[:80] for n in names if isinstance(n,str) and n.strip() and not contains_private(n)]
+        if not names:
+            return
+        with self.state.db() as db:
+            old=db.execute('SELECT names FROM memory_people WHERE scope=? AND user=?',(scope,str(user))).fetchone()
+            aliases=list(dict.fromkeys([*names,*(json.loads(old[0]) if old else [])]))[:5]
+            db.execute('INSERT OR REPLACE INTO memory_people VALUES (?,?,?,?)',
+                       (scope,str(user),json.dumps(aliases,ensure_ascii=False),time.time()))
+
+    def people(self,scope,allowed):
+        with self.state.db() as db:
+            db.execute('DELETE FROM memory_people WHERE updated<?',(time.time()-180*86400,))
+            return {r['user']:json.loads(r['names']) for r in db.execute('''SELECT p.* FROM memory_people p
+                WHERE p.scope=? AND NOT EXISTS (SELECT 1 FROM privacy v WHERE v.scope=p.scope AND v.user=p.user AND v.muted=1)''',(scope,))
+                if r['user'] in allowed}
 
     def retrieve(self,scope,user,peers,now):
         owners = {str(user),*[str(p) for p in peers[:3]]}
@@ -194,7 +218,7 @@ class MemoryStore:
             self.delete_ids(db,ids)
 
     def manage(self,scope,user,memory_id,action,now,text='',message_id=''):
-        row = next((r for r in self.rows(scope,now) if r['id']==memory_id),None)
+        row = next((r for r in self.rows(scope,now,limit=None) if r['id']==memory_id),None)
         if row is None or not self.owned(row,user):
             return False
         with self.state.db() as db:
@@ -234,6 +258,9 @@ class MemoryEngine:
             return
         if contains_private(text):
             return
+        if not bot:
+            self.store.observe_person(scope,message.author.id,
+                                      [message.author.display_name,getattr(message.author,'name','')])
         # Do not persist full messages. Pending source material is bounded, in memory only.
         entry = {'message_id':str(message.id),'user_id':str(message.author.id),'bot':bot,
                  'text':text[:800],'time':time.time()}
@@ -326,7 +353,7 @@ class MemoryEngine:
             return False
         bot = self.bot
         scope,user = f'{message.guild.id}:{message.channel.id}',message.author.id
-        rows = self.store.rows(scope,time.time())
+        rows = self.store.rows(scope,time.time(),limit=None)
         if text in {'自动记忆','共同回忆'}:
             selected = [r for r in rows if (r['kind']=='episode' if text=='共同回忆' else r['owner']==str(user))][:10]
             reply = '\n'.join(f"#{r['id']} {'待确认' if r['status']=='candidate' else '已记住'}：{r['summary']}" for r in selected) or '目前没有这些记忆。'
