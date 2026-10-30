@@ -29,6 +29,7 @@ from topic_state import TopicEngine
 from memory_context import relevant_memories
 from participation import context_bundle, should_join, RULES as PARTICIPATION_RULES
 from vision import Vision, image_attachments
+from meme_context import interpret as interpret_meme, REPLY_RULES as MEME_REPLY_RULES
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("gpt-girl")
@@ -475,12 +476,14 @@ class GirlBot(discord.Client):
                 payload['social_memory'] = await relevant_memories(self,message,text,reference_context,recent,route,social=not interaction)
             payload['participation'] = context_bundle(reference_context,payload.get('social_memory',{}),recent,
                                                      [r['text'] for r in self.recent_bot.get(scope,[])])
+            if visual['images']:
+                payload['meme_context'] = await interpret_meme(self,message,text,visual,reference_context,kind)
             if stale():
                 return
             if not await should_join(self,payload) or stale():
                 LOG.info('Turn skipped reason=semantic_addressee channel=%s',message.channel.id)
                 return
-            action, answer = await answer_provider.complete(self.persona + DECISION_RULES + PARTICIPATION_RULES, payload)
+            action, answer = await answer_provider.complete(self.persona + DECISION_RULES + PARTICIPATION_RULES + MEME_REPLY_RULES, payload)
             if stale():
                 LOG.info("Turn discarded reason=newer_message_or_privacy channel=%s", message.channel.id)
                 return

@@ -48,6 +48,10 @@ class VisualProvider:
         if 'observations' in fields:
             return {'observations': [dict(image_id=r['image_id'], description='蓝色图片',
                 visible_text='测试编号', question_details='左边是蓝色', uncertainty='') for r in payload['images']]}
+        if 'common_usage' in fields:
+            return dict(kind='ordinary', tone='sincere', function='none', emotion=[], common_usage='',
+                current_meaning='', confidence='low', target='unknown', target_user_id='',
+                evidence_ids=[], uncertainty='', reply_hint='answer')
         if 'use_images' in fields:
             return {'use_images': self.select}
         if 'topic_start_id' in fields:
