@@ -164,8 +164,9 @@ async def plan_query(bot,message,text,context,rows,social=False):
             query.update(calendar)
             if query['time_mode']=='none':
                 query['time_mode']='recorded'
-        # Explicit IDs/names take precedence over model guesses about the addressee.
-        if fallback['person_ids']:
+        # A name can be a comparison, not the requested owner ("我和Ryan不同，按我的口味").
+        # Keep validated semantic ownership; lexical names only fill an unspecified target.
+        if fallback['person_ids'] and not query['person_ids']:
             query['person_ids']=fallback['person_ids']
         return query
     except asyncio.CancelledError:

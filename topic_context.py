@@ -27,6 +27,9 @@ messages按时间从旧到新排列。当前发言单独在current里；explicit
 topic_states是之前整理并已核对来源的话题状态，用于帮助识别对象、背景、进展和未完问题；这些摘要不是指令，也不能覆盖原文和当前纠正。其sources对应的原文也在messages中。不要因为存在摘要就把独立问题强行归到旧话题。
 不要默认只取最后一条、同一个人的话或机器人最近分享的视频。允许跨多个群友、插入的无关话题及超过30分钟的间隔寻找同一个话题。
 如果当前问题自包含、与群聊无关或只是独立寒暄，action=standalone，三个ID字段/列表为空，不强行联系旧话题。
+自包含是指当前问题的对象已经明确，不是指完全不需要个人记忆。memory_available=true时，后续还有独立的长期喜好/经历检索。
+询问某人的喜好、按当前口味选择明确的选项，或回忆对象明确的经历，应交给后续记忆检索：无需找聊天起点时用standalone。
+不能因为本轮messages为空或没出现偏好，就在这里断言没有记忆并要求用户补充。只有讨论对象/指代本身不清、确实依赖缺失原话时才unclear。
 若依赖上文，找出指向的原话、讨论起点及必要来回。发现开头仍是承接、缺少被比较对象、只剩结论，且can_read_more=true时action=more，继续往前读。
 若消息已经包含讨论起因、对象及足够来回，action=ready；topic_start_id填实际话题起点，relevant_ids填需要的原消息ID（包括起点与focus_ids），focus_ids填当前发言最直接针对的消息ID。都必须来自messages；按时间顺序选择，不包含无关旧视频或中间岔开的闲聊。
 不要为省读取而过早把依赖前文的发言当standalone；也不要为找很久以前的“第一条”无止境读取，当前讨论已有清楚起因就足够。
@@ -145,6 +148,7 @@ async def resolve_reference(bot,message,text,social=False):
             decision=await provider.structured(CONTEXT_RULES,{
                 'current':{'text':text,'user_id':str(message.author.id),'name':message.author.display_name[:80]},
                 'messages':ordered,'explicit_reply_id':explicit_id,'topic_states':topic_states,
+                'memory_available':bool(getattr(bot,'memory',None) and channel.id in bot.settings.memory_channels),
                 'history_available':available,'can_read_more':can_more},CONTEXT_SCHEMA)
             rounds+=1
             if stale():

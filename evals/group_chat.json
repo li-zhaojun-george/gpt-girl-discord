@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "transcripts": {
+    "keyboard": [
+      {"id": 11, "user": 1, "age_hours": 30, "text": "我想买安静一点的键盘，在80HE和90HE之间纠结，还没决定。"},
+      {"id": 12, "user": 2, "age_hours": 29, "text": "80HE便宜一些，90HE贵一些；先看看两款键盘的声音实测，再看差价值不值。"},
+      {"id": 13, "user": 99, "age_hours": 1, "text": "刚分享了一段泡面做法视频，标题说是三分钟快手面。"}
+    ],
+    "finished": [
+      {"id": 11, "user": 1, "age_hours": 30, "text": "我在80HE和90HE之间纠结，还没决定买哪款键盘。"},
+      {"id": 14, "user": 1, "age_hours": 25, "text": "我最后已经买了80HE，键盘选择这件事结束了，不用再提醒我选。"}
+    ],
+    "drinks": [
+      {"id": 21, "user": 1, "age_hours": 48, "text": "我一直喜欢无糖红茶，不喜欢咖啡。"},
+      {"id": 22, "user": 2, "age_hours": 36, "text": "我一直喜欢黑咖啡，不喜欢红茶。"},
+      {"id": 23, "user": 1, "age_hours": 1, "text": "我现在改成喜欢黑咖啡了，不再喜欢红茶。"}
+    ]
+  },
+  "cases": [
+    {"id": "switch_keyboard_video", "category": "多人话题切换", "transcript": "keyboard", "history": true,
+     "text": "大白龙，那便宜的80HE键盘还值得买吗？", "oracle_context": [11,12],
+     "oracle_answer": "80HE便宜一些，但你在意安静，先比较两款键盘的声音实测，再判断差价。",
+     "expect": {"reply": true, "context_contains": [11,12], "context_excludes": [13], "answer_any": ["80HE","键盘"], "answer_absent": ["泡面"]}},
+    {"id": "switch_other_person", "category": "多人话题切换", "transcript": "keyboard", "history": true, "active": true,
+     "text": "Ryan，你先选角色，我跟着你。", "oracle_context": [], "oracle_gate": "other",
+     "expect": {"reply": false, "final_calls": 0}},
+    {"id": "switch_explicit_reply", "category": "多人话题切换", "transcript": "keyboard", "history": true, "reply_to": 12,
+     "text": "<@99> 这条键盘建议你怎么看？", "oracle_context": [11,12],
+     "oracle_answer": "这条建议是在说先看80HE和90HE的声音实测，再决定贵的那款是否值得。",
+     "expect": {"reply": true, "context_contains": [11,12], "context_excludes": [13], "answer_any": ["实测","测评"], "answer_absent": ["泡面"]}},
+    {"id": "next_day_restart", "category": "隔天接续", "transcript": "keyboard", "history": false, "restart": true,
+     "topic": {"sources": [11,12], "title": "键盘选择", "progress": ["比较80HE和90HE的价格与声音"], "pending": ["还没有决定买哪款键盘"]},
+     "text": "大白龙，昨天那便宜一款还值得买吗？", "oracle_context": [11,12],
+     "oracle_answer": "昨天比较的是80HE和90HE。80HE便宜些，你在意安静，还是要看声音实测。",
+     "expect": {"reply": true, "context_contains": [11,12], "topic_count": 1, "answer_any": ["80HE"], "answer_absent": ["泡面"], "source_fetches": [11,12]}},
+    {"id": "next_day_finished", "category": "隔天接续", "transcript": "finished", "history": false, "restart": true,
+     "topic": {"sources": [11,14], "title": "键盘已选好", "progress": ["用户1已经买了80HE，选择完成"], "pending": []},
+     "text": "大白龙，我昨天最后选的是哪款？", "oracle_context": [11,14],
+     "oracle_answer": "你昨天最后买了80HE，已经选好了。",
+     "expect": {"reply": true, "context_contains": [14], "topic_count": 1, "pending_empty": true, "answer_any": ["80HE"], "answer_absent": ["没决定","还没选"]}},
+    {"id": "next_day_missing_source", "category": "隔天接续", "transcript": "keyboard", "history": false, "restart": true, "deleted": [11],
+     "topic": {"sources": [11,12], "title": "键盘选择", "progress": ["正在比较两款键盘"], "pending": ["未决定"]},
+     "text": "大白龙，昨天那个还值得买吗？", "oracle_context": [], "oracle_unclear": true,
+     "expect": {"reply": true, "final_calls": 0, "answer_any": ["补一句","回复那条消息"], "remaining_topics": 0}},
+    {"id": "preference_permanent_change", "category": "喜好变化", "transcript": "drinks", "history": false, "memories": [21,23],
+     "text": "大白龙，按我现在的口味，喝红茶还是黑咖啡？", "oracle_context": [], "oracle_memory_sources": [23],
+     "oracle_answer": "你现在改成喜欢黑咖啡了，这次选黑咖啡。",
+     "expect": {"reply": true, "memory_owners": ["1"], "memory_sources": ["23"], "stored_sources": ["23"], "answer_any": ["黑咖啡"]}},
+    {"id": "preference_temporary_override", "category": "喜好变化", "transcript": "drinks", "history": false, "memories": [21],
+     "text": "大白龙，我今天不想喝红茶，想试试咖啡，别按旧口味推荐。", "oracle_context": [], "oracle_memory_sources": [],
+     "oracle_answer": "那今天试试咖啡，先选小杯，看看是不是你这次想要的味道。",
+     "expect": {"reply": true, "memory_owners": [], "stored_sources": ["21"], "answer_any": ["咖啡","奶咖","拿铁","美式","浓缩"]}},
+    {"id": "preference_correct_owner", "category": "喜好变化", "transcript": "drinks", "history": false, "memories": [21,22],
+     "text": "大白龙，我和Ryan口味不同，按我自己的喜好选饮品。", "oracle_context": [], "oracle_memory_sources": [21],
+     "oracle_answer": "按你自己的喜好选无糖红茶，Ryan的咖啡口味不用套到你身上。",
+     "expect": {"reply": true, "memory_owners": ["1"], "memory_sources": ["21"], "answer_any": ["红茶"]}},
+    {"id": "false_trigger_emoji", "category": "误触发", "transcript": "keyboard", "history": false, "active": true,
+     "text": "😂", "oracle_context": [], "oracle_gate": "unclear",
+     "expect": {"reply": false, "final_calls": 0}},
+    {"id": "false_trigger_closed", "category": "误触发", "transcript": "keyboard", "history": false, "active": true,
+     "text": "先不聊了", "oracle_context": [],
+     "expect": {"reply": false, "final_calls": 0, "model_calls": 0}},
+    {"id": "false_trigger_unrelated_memory", "category": "误触发", "transcript": "drinks", "history": false, "memories": [21],
+     "text": "大白龙，解释一下什么是质数。", "oracle_context": [], "oracle_memory_sources": [],
+     "oracle_answer": "质数是大于1、只有1和它本身两个正因数的整数，例如2、3、5。",
+     "expect": {"reply": true, "memory_owners": [], "answer_any": ["质数"], "answer_absent": ["红茶","咖啡"]}}
+  ]
+}
