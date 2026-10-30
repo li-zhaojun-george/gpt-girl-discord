@@ -44,7 +44,7 @@ def source_row(message):
     return {'message_id': str(message.id), 'user_id': str(message.author.id),
             'name': message.author.display_name[:80], 'bot': message.author.bot,
             'text': message.content[:800], 'time': message.created_at.timestamp(),
-            'has_attachments': bool(message.attachments),
+            'has_attachments': bool(message.attachments or getattr(message, 'stickers', ())),
             'reply_to_message_id': str(getattr(getattr(message, 'reference', None), 'message_id', '') or ''),
             'digest': hashlib.sha256(message.content.encode('utf-8')).hexdigest()}
 
